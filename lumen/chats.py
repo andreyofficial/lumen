@@ -159,10 +159,13 @@ class ChatStore(QObject):
             self._active_id = None
 
     def _flush(self) -> None:
-        os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        # Atomic rename keeps the file readable even if we crash mid-write.
+        # Best-effort write. If the disk is read-only or the directory
+        # can't be created (e.g. unusual sandbox / permissions), keep
+        # the in-memory state and silently move on — chats simply won't
+        # persist across restarts in that case.
         tmp = self._path + ".tmp"
         try:
+            os.makedirs(os.path.dirname(self._path), exist_ok=True)
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(
                     {
@@ -176,7 +179,11 @@ class ChatStore(QObject):
                 )
             os.replace(tmp, self._path)
         except OSError:
-            pass
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
 
     def mark_dirty(self) -> None:
         """Schedule a flush after the debounce delay."""
