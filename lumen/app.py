@@ -16,6 +16,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -42,6 +43,7 @@ from .highlighter import CodeHighlighter, comment_marker_for, detect_language
 from .icons import app_icon, icon
 from .minimap import Minimap
 from .palette import CommandPalette
+from .preferences import Preferences, PreferencesDialog
 from .pycharm import (
     GotoLineDialog,
     OutlinePanel,
@@ -175,7 +177,15 @@ class MainWindow(QMainWindow):
         self.activity.add_view("ai", icon("sparkles"), "AI Assistant (Ctrl+Shift+A)")
         self.activity.view_changed.connect(self._on_activity_changed)
 
-        # Theme toggle button at the bottom of the activity bar
+        # Settings (gear) + theme toggle, anchored to the bottom of the
+        # activity bar. Order matters — `add_view(..., bottom=True)` appends,
+        # so the gear ends up *above* the theme toggle.
+        self._activity_settings_btn = self.activity.add_view(
+            "settings", icon("settings"), "Preferences (Ctrl+,)", bottom=True,
+        )
+        self._activity_settings_btn.clicked.connect(
+            lambda _c=False: self.show_preferences()
+        )
         self._activity_theme_btn = self.activity.add_view(
             "theme", icon("moon"), "Toggle Theme", bottom=True,
         )
@@ -430,6 +440,10 @@ class MainWindow(QMainWindow):
         self.act_palette.setShortcut("Ctrl+Shift+P")
         self.act_palette.triggered.connect(self._show_palette)
 
+        self.act_preferences = QAction(icon("settings"), "Preferences…", self)
+        self.act_preferences.setShortcut("Ctrl+,")
+        self.act_preferences.triggered.connect(self.show_preferences)
+
         # ---------- PyCharm-style productivity actions ----------
         self.act_goto_line = QAction("Go to Line…", self)
         self.act_goto_line.setShortcut("Ctrl+G")
@@ -550,6 +564,8 @@ class MainWindow(QMainWindow):
 
         view_menu: QMenu = mb.addMenu("&View")
         view_menu.addAction(self.act_palette)
+        view_menu.addAction(self.act_preferences)
+        view_menu.addSeparator()
         view_menu.addAction(self.act_toggle_sidebar)
         view_menu.addAction(self.act_show_explorer)
         view_menu.addAction(self.act_search_in_folder)
@@ -666,6 +682,7 @@ class MainWindow(QMainWindow):
             self.act_toggle_minimap, self.act_toggle_lineno,
             self.act_toggle_theme,
             self.act_zoom_in, self.act_zoom_out, self.act_zoom_reset,
+            self.act_preferences,
             self.act_about, self.act_quit,
         ]
         # AI actions only appear in the palette when the feature is enabled.
@@ -1278,6 +1295,60 @@ class MainWindow(QMainWindow):
     def _show_palette(self) -> None:
         self._wire_command_palette()
         self.command_palette.open()
+
+    def show_preferences(self) -> None:
+        """Open the Preferences dialog and apply the result."""
+        ed = self._current_editor()
+        prefs = Preferences(
+            theme=theme.active_name(),
+            font_size=ed.font_size() if ed else int(getattr(self, "_initial_font_size", 13)),
+            tab_size=ed._tab_size if ed else 4,
+            use_spaces=ed._use_spaces if ed else True,
+            show_line_numbers=self.act_toggle_lineno.isChecked(),
+            show_minimap=self.act_toggle_minimap.isChecked(),
+            ai_enabled=self.sidebar_ai.is_enabled(),
+        )
+        dlg = PreferencesDialog(
+            prefs,
+            on_open_ai_settings=lambda: self.sidebar_ai.open_settings(),
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new = dlg.result_prefs()
+        self._apply_preferences(prefs, new)
+
+    def _apply_preferences(self, old: Preferences, new: Preferences) -> None:
+        """Apply only the prefs that actually changed, persist them all."""
+        if new.theme != old.theme:
+            self.set_theme(new.theme)
+        if new.font_size != old.font_size:
+            self._zoom(0, reset=True)  # ensures every tab updates
+            for i in range(self.tabs.count()):
+                t = self.tabs.widget(i)
+                if isinstance(t, _TabContainer):
+                    t.editor.set_font_size(new.font_size)
+            self._initial_font_size = new.font_size
+            self._settings.setValue("font_size", new.font_size)
+        if new.tab_size != old.tab_size or new.use_spaces != old.use_spaces:
+            for i in range(self.tabs.count()):
+                t = self.tabs.widget(i)
+                if isinstance(t, _TabContainer):
+                    t.editor.set_tab_size(new.tab_size)
+                    t.editor.set_use_spaces(new.use_spaces)
+            self._settings.setValue("tab_size", new.tab_size)
+            self._settings.setValue("use_spaces", new.use_spaces)
+            self.status_indent.setText(
+                f"{'Spaces' if new.use_spaces else 'Tabs'}: {new.tab_size}"
+            )
+        if new.show_line_numbers != old.show_line_numbers:
+            self.act_toggle_lineno.setChecked(new.show_line_numbers)
+            self._toggle_line_numbers(new.show_line_numbers)
+        if new.show_minimap != old.show_minimap:
+            self.act_toggle_minimap.setChecked(new.show_minimap)
+            self._toggle_minimap(new.show_minimap)
+        if new.ai_enabled != old.ai_enabled:
+            self.set_ai_enabled(new.ai_enabled)
 
     def _show_about(self) -> None:
         QMessageBox.about(
