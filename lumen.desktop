@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lumen
+GenericName=Code Editor
+Comment=A fast, focused code editor for Linux
+Exec=__EXEC__
+Icon=__ICON__
+Terminal=false
+Categories=Development;TextEditor;IDE;
+MimeType=text/plain;text/x-python;text/x-c;text/x-c++src;text/x-shellscript;text/markdown;application/json;text/html;text/css;
+StartupNotify=true
+Keywords=editor;code;programming;text;

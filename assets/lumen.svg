@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Monochrome app icon — black rounded card, white "L"-mark glyph. -->
+  <rect width="256" height="256" rx="48" fill="#000000"/>
+  <rect x="3" y="3" width="250" height="250" rx="46" fill="none"
+        stroke="#ffffff" stroke-opacity="0.16" stroke-width="2"/>
+  <!-- Stylised "Lumen" mark: a vertical L stroke + a curved D-arc. -->
+  <path fill="#ffffff" d="
+    M 76 64
+    L 100 64
+    L 100 178
+    L 152 178
+    L 152 200
+    L 76 200
+    Z"/>
+  <path fill="#ffffff" d="
+    M 132 64
+    L 168 64
+    Q 200 64 200 96
+    L 200 168
+    Q 200 200 168 200
+    L 132 200
+    Z
+    M 156 88
+    L 156 176
+    L 168 176
+    Q 176 176 176 168
+    L 176 96
+    Q 176 88 168 88
+    Z"/>
+</svg>

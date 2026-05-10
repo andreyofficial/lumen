@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.cache/
+
+# Virtual envs
+.venv/
+venv/
+.buildvenv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+__main__.spec
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*~
+
+# Lumen runtime
+*.log
+.lumen/
+ai-conversations.json
+
+# Test artefacts
+/tmp_*/
+.coverage
+htmlcov/
