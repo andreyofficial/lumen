@@ -185,6 +185,11 @@ class MainWindow(QMainWindow):
         self.sidebar_explorer = FileTree()
         self.sidebar_explorer.setObjectName("Sidebar")
         self.sidebar_explorer.file_open_requested.connect(self.open_path)
+        self.sidebar_explorer.open_in_terminal_requested.connect(
+            self._open_terminal_at
+        )
+        self.sidebar_explorer.file_renamed.connect(self._on_external_rename)
+        self.sidebar_explorer.file_deleted.connect(self._on_external_delete)
 
         self.sidebar_search = SearchPanel()
         self.sidebar_search.setObjectName("Sidebar")
@@ -860,6 +865,38 @@ class MainWindow(QMainWindow):
         tab = self._current_tab()
         if tab:
             tab.goto_line(line)
+
+    def _open_terminal_at(self, cwd: str) -> None:
+        """Reveal the integrated terminal docked at *cwd*."""
+        if not cwd or not os.path.isdir(cwd):
+            return
+        self.terminal.set_cwd(cwd)
+        self.bottom_dock.show()
+        self.bottom_dock.setCurrentWidget(self.terminal)
+        self.act_toggle_terminal.setChecked(True)
+        sizes = self.v_splitter.sizes()
+        total = sum(sizes) or 800
+        if sizes[1] < 80:
+            self.v_splitter.setSizes([max(300, total - 220), 220])
+        self.terminal.focus_input()
+
+    def _on_external_rename(self, old_path: str, new_path: str) -> None:
+        """Update any open tab whose file was renamed from the explorer."""
+        for i in range(self.tabs.count()):
+            t = self.tabs.widget(i)
+            if isinstance(t, _TabContainer) and t.state.path == old_path:
+                t.state.path = new_path
+                self._refresh_tab_title(t)
+
+    def _on_external_delete(self, path: str) -> None:
+        """If a file deleted via the explorer is currently open, leave the
+        tab in place but flag it as modified so the user can rescue the
+        contents — losing data silently would be the worst outcome."""
+        for i in range(self.tabs.count()):
+            t = self.tabs.widget(i)
+            if isinstance(t, _TabContainer) and t.state.path == path:
+                t.editor.document().setModified(True)
+                self._refresh_tab_title(t)
 
     def save_file(self) -> None:
         tab = self._current_tab()
