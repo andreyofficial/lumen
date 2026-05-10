@@ -54,6 +54,17 @@ A fast, focused, professionally-styled code editor for Linux, built with PyQt6.
   four sections: *Crashes & bugs*, *Edge cases*, *Performance /
   optimisations*, and a *Patched version* of the whole file. Press Send
   with an empty prompt while Debug Mode is on to fire a full-file audit.
+- **AI Scan Mode** — toggle the compass icon to put the assistant into
+  Socratic mentor mode. It reads your file, gauges your current level,
+  suggests 3–5 stretch tasks one notch above where you are, and as you
+  work it replies with **indirect hints** — Socratic questions, vague
+  pointers, small experiments to try — never the full solution. Want
+  the answer? Type "give me the answer" / "just show me the code" /
+  "spoil it" and Scan Mode breaks character for that one reply only.
+- **Crisp taskbar / dock icon** — the bundled hicolor PNGs (16/22/24/
+  32/48/64/96/128/192/256/512) are auto-installed into your icon theme
+  on first launch, so the Lumen mark appears sharp in any taskbar,
+  dock, Alt-Tab switcher, or notification area.
 - **Monochrome language badges** — every editor tab and the file
   explorer use small black-and-white badges (`Py`, `TS`, `JS`, `{ }`,
   `</>`, `CSS`, `MD`, `>_`, `Rs`, `Go`, `Jv`, …) so the chrome stays

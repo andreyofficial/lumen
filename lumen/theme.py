@@ -934,9 +934,9 @@ def stylesheet(p: Palette) -> str:
         border-color: {p.accent};
     }}
 
-    /* Debug-mode toggle — sits flush-left on the composer row.
+    /* Debug- and Scan-mode toggles — sit flush-left on the composer row.
        Lit-up when on so the user always sees the active mode. */
-    QPushButton#AIDebugToggle {{
+    QPushButton#AIDebugToggle, QPushButton#AIScanToggle {{
         background: {p.bg_input};
         color: {p.text_muted};
         border: 1px solid {p.border};
@@ -945,11 +945,11 @@ def stylesheet(p: Palette) -> str:
         font-size: 11px;
         font-weight: 600;
     }}
-    QPushButton#AIDebugToggle:hover {{
+    QPushButton#AIDebugToggle:hover, QPushButton#AIScanToggle:hover {{
         border-color: {p.accent};
         color: {p.text};
     }}
-    QPushButton#AIDebugToggle:checked {{
+    QPushButton#AIDebugToggle:checked, QPushButton#AIScanToggle:checked {{
         background: {p.accent_subtle};
         color: {p.accent};
         border-color: {p.accent};

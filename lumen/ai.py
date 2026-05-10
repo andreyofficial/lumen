@@ -92,7 +92,8 @@ class AIConfig:
     temperature: float = 0.4
     include_current_file: bool = False
     max_history: int = 16  # how many past messages to send to the API
-    debug_mode: bool = False  # extra "code-review / find bugs / optimise" pass
+    debug_mode: bool = False  # "find bugs / edge cases / optimise" pass
+    scan_mode: bool = False   # "Socratic mentor" — stretch tasks + hints
 
     @classmethod
     def load(cls, settings: QSettings) -> "AIConfig":
@@ -116,6 +117,9 @@ class AIConfig:
         cfg.debug_mode = bool(
             settings.value("ai/debug_mode", cfg.debug_mode, type=bool)
         )
+        cfg.scan_mode = bool(
+            settings.value("ai/scan_mode", cfg.scan_mode, type=bool)
+        )
         return cfg
 
     def save(self, settings: QSettings) -> None:
@@ -128,6 +132,7 @@ class AIConfig:
         settings.setValue("ai/include_current_file", bool(self.include_current_file))
         settings.setValue("ai/max_history", int(self.max_history))
         settings.setValue("ai/debug_mode", bool(self.debug_mode))
+        settings.setValue("ai/scan_mode", bool(self.scan_mode))
 
 
 # The system prompt that turns the AI into a debug + optimisation engineer.
@@ -156,6 +161,93 @@ DEBUG_SYSTEM_PROMPT = (
     "If the file looks correct, say so explicitly under each heading "
     "and emit an unchanged 'Patched version' so the user can still "
     "diff it against their copy. Never invent code outside the file."
+)
+
+
+# Phrases that flip Scan Mode out of "hints only" and into "give the
+# direct answer". Matched as a substring against a lower-cased version
+# of the user's most recent message.
+_SCAN_REVEAL_PHRASES = (
+    "give me the answer",
+    "give the answer",
+    "show me the code",
+    "show me the answer",
+    "show the code",
+    "tell me directly",
+    "tell me the answer",
+    "just tell me",
+    "just show me",
+    "spoil it",
+    "spoiler",
+    "i give up",
+    "show solution",
+    "the solution",
+    "the answer please",
+    "i'm stuck show me",
+    "im stuck show me",
+    "just do it",
+    "drop the hints",
+    "no more hints",
+    "stop hinting",
+    "answer directly",
+)
+
+
+def _wants_direct_answer(text: str) -> bool:
+    """True iff the user explicitly asked Scan Mode to break character."""
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in _SCAN_REVEAL_PHRASES)
+
+
+# The system prompt for SCAN MODE — a Socratic coding mentor.
+SCAN_SYSTEM_PROMPT_HINTS = (
+    "You are now operating in SCAN MODE — a Socratic coding mentor. "
+    "The user's current file is attached above.\n\n"
+    "**Phase 1 — Initial scan** (when the user opens this mode without "
+    "a specific question, or asks 'scan my code'): Read the file and "
+    "estimate the author's current skill level by looking at idioms, "
+    "abstractions, error handling, naming, and structure. Then suggest "
+    "**3–5 stretch tasks** that are slightly above that level — "
+    "challenging enough to push them, achievable enough they don't "
+    "bounce off. For each task, give:\n"
+    "  - **What** — one short sentence describing the task.\n"
+    "  - **Why it stretches you** — one short sentence on the new "
+    "skill / pattern they'll practise.\n"
+    "  - **Concepts to research** — 1–3 keywords or topic names "
+    "(NOT links, NOT code snippets, NOT a recipe).\n"
+    "Never include working code or step-by-step instructions in this "
+    "phase.\n\n"
+    "**Phase 2 — Coaching** (when the user asks for help on a task): "
+    "Stay in mentor mode. NEVER hand them the solution or working "
+    "code. Reply with **indirect hints** instead — Socratic questions, "
+    "vague pointers (avoid naming the exact API/function/method that "
+    "solves it), analogies to similar problems they've already "
+    "solved, or one concrete sub-experiment they could try. Keep "
+    "responses short — one hint per turn. Always end with a question "
+    "or a small concrete action, never a full plan. If the user shares "
+    "broken code, point at the *region* that's wrong and ask a question "
+    "about it; do not paste a fixed version.\n\n"
+    "**Tone**: warm, encouraging, and a little playful — like a "
+    "friendly senior dev pair-programming. No condescension. Celebrate "
+    "small steps.\n\n"
+    "**Hard rules in hint mode**:\n"
+    "  - Do NOT output complete or near-complete solutions.\n"
+    "  - Do NOT write code blocks longer than 3 lines.\n"
+    "  - Do NOT name the specific built-in / library function that "
+    "solves the problem unless it's already in their file.\n"
+    "  - If the user pleads, vague-hints harder. They have to use the "
+    "explicit escape hatch below to get a direct answer.\n"
+)
+
+
+SCAN_SYSTEM_PROMPT_REVEAL = (
+    "You are SCAN MODE, the user's coding mentor. They just used the "
+    "explicit escape hatch (e.g. 'give me the answer', 'just show me "
+    "the code', 'spoil it') — drop the Socratic hints for THIS reply "
+    "only. Provide a clean, direct solution: a short explanation "
+    "followed by the working code in a fenced block. Then, gently, "
+    "in one sentence, point out the single concept they should review "
+    "afterwards so the next stretch task lands. Keep it kind."
 )
 
 
@@ -583,6 +675,25 @@ class AIPanel(QFrame):
         self.btn_debug.toggled.connect(self._on_debug_toggled)
         btn_row.addWidget(self.btn_debug)
 
+        # Scan-mode toggle — Socratic mentor. Mutually exclusive with
+        # Debug Mode (they'd write conflicting system prompts).
+        self.btn_scan = QPushButton("  Scan")
+        self.btn_scan.setObjectName("AIScanToggle")
+        self.btn_scan.setIcon(icon("compass"))
+        self.btn_scan.setIconSize(QSize(14, 14))
+        self.btn_scan.setCheckable(True)
+        self.btn_scan.setChecked(self._cfg.scan_mode)
+        self.btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_scan.setToolTip(
+            "Scan Mode\n"
+            "I'll read your code, gauge your level, and suggest stretch\n"
+            "tasks that are a notch above where you are now. As you work\n"
+            "I give indirect hints (no spoilers) — say 'give me the\n"
+            "answer' or 'just show me the code' to break the spell."
+        )
+        self.btn_scan.toggled.connect(self._on_scan_toggled)
+        btn_row.addWidget(self.btn_scan)
+
         btn_row.addStretch(1)
 
         self.btn_stop = QPushButton("Stop")
@@ -834,14 +945,21 @@ class AIPanel(QFrame):
         text = self.input.toPlainText().strip()
         if self._busy:
             return
-        # Debug-mode lets the user fire a full file audit by hitting Send
-        # with an empty prompt — saves them typing the same thing twice.
+        # Debug / Scan modes let the user fire a default starting prompt
+        # by hitting Send with an empty composer — saves them typing the
+        # same boilerplate every time.
         if not text:
             if self._cfg.debug_mode:
                 text = (
                     "Run a full debug pass on the current file. Find every "
                     "crash path, edge case, and optimisation opportunity, "
                     "then return a patched version."
+                )
+            elif self._cfg.scan_mode:
+                text = (
+                    "Scan my current file. Estimate where I'm at, then "
+                    "suggest stretch tasks that would push me to the next "
+                    "level."
                 )
             else:
                 return
@@ -880,6 +998,13 @@ class AIPanel(QFrame):
     def _on_debug_toggled(self, checked: bool) -> None:
         """Persist the Debug Mode flag and refresh the placeholder text."""
         self._cfg.debug_mode = bool(checked)
+        # Debug + Scan are mutually exclusive — they'd write conflicting
+        # system prompts. Turning one on always turns the other off.
+        if checked and self._cfg.scan_mode:
+            self._cfg.scan_mode = False
+            self.btn_scan.blockSignals(True)
+            self.btn_scan.setChecked(False)
+            self.btn_scan.blockSignals(False)
         self._cfg.save(self._settings)
         # File context is required for a meaningful debug pass — switch
         # it on automatically when the user enables Debug Mode (but never
@@ -889,15 +1014,35 @@ class AIPanel(QFrame):
         self._set_busy(self._busy)  # refresh placeholder
         self._refresh_status()
 
+    def _on_scan_toggled(self, checked: bool) -> None:
+        """Persist Scan Mode + flip Debug off if it was on."""
+        self._cfg.scan_mode = bool(checked)
+        if checked and self._cfg.debug_mode:
+            self._cfg.debug_mode = False
+            self.btn_debug.blockSignals(True)
+            self.btn_debug.setChecked(False)
+            self.btn_debug.blockSignals(False)
+        self._cfg.save(self._settings)
+        # The mentor needs to actually see your code.
+        if checked and not self._cfg.include_current_file:
+            self.context_chip.setChecked(True)
+        self._set_busy(self._busy)
+        self._refresh_status()
+
     def _refresh_status(self) -> None:
         ctx_label = "with current file context" if self._cfg.include_current_file else "no file context"
         try:
             host = QUrl(self._cfg.base_url).host() or self._cfg.base_url
         except Exception:
             host = self._cfg.base_url
-        debug_label = "  ·  debug mode" if self._cfg.debug_mode else ""
+        if self._cfg.debug_mode:
+            mode_label = "  ·  debug mode"
+        elif self._cfg.scan_mode:
+            mode_label = "  ·  scan mode"
+        else:
+            mode_label = ""
         self.status_label.setText(
-            f"{self._cfg.model}  ·  {host}  ·  {ctx_label}{debug_label}"
+            f"{self._cfg.model}  ·  {host}  ·  {ctx_label}{mode_label}"
         )
 
     def _append_user_bubble(self, text: str) -> None:
@@ -966,9 +1111,13 @@ class AIPanel(QFrame):
         if self._cfg.system_prompt:
             msgs.append({"role": "system", "content": self._cfg.system_prompt})
 
-        # Optional file context. Debug Mode forces this on so the model
-        # actually has the code in front of it to audit.
-        wants_context = self._cfg.include_current_file or self._cfg.debug_mode
+        # Optional file context. Debug + Scan modes force this on — they
+        # both need the code in scope before their persona prompts run.
+        wants_context = (
+            self._cfg.include_current_file
+            or self._cfg.debug_mode
+            or self._cfg.scan_mode
+        )
         if wants_context and self._context_provider is not None:
             try:
                 ctx = self._context_provider()
@@ -986,11 +1135,24 @@ class AIPanel(QFrame):
                         ),
                     })
 
-        # Debug Mode persona — appended *after* the file context so the
-        # model has both the user's persona AND the file in scope when
-        # the debug instructions arrive.
+        # Mode-specific personas — appended *after* the file context so
+        # the model has both the user's persona AND the file in scope
+        # when the persona instructions arrive.
         if self._cfg.debug_mode:
             msgs.append({"role": "system", "content": DEBUG_SYSTEM_PROMPT})
+        elif self._cfg.scan_mode:
+            # Pick the prompt variant by sniffing the most recent user
+            # message: if it contains an explicit "give me the answer"
+            # phrase, drop the Socratic restrictions for that single turn.
+            last_user = ""
+            for m in reversed(self._messages):
+                if m.role == "user" and m.content:
+                    last_user = m.content
+                    break
+            if _wants_direct_answer(last_user):
+                msgs.append({"role": "system", "content": SCAN_SYSTEM_PROMPT_REVEAL})
+            else:
+                msgs.append({"role": "system", "content": SCAN_SYSTEM_PROMPT_HINTS})
 
         # Conversation history (cap to max_history excluding the just-appended user message)
         history = [m for m in self._messages if m.content]
@@ -1174,16 +1336,24 @@ class AIPanel(QFrame):
         self.btn_send.setEnabled(not busy)
         self.btn_send.setVisible(not busy)
         self.btn_stop.setVisible(busy)
-        # Debug toggle stays enabled even while a request is streaming so
+        # Mode toggles stay enabled even while a request is streaming so
         # the user can flip the mode for the next message.
         self.input.setEnabled(not busy)
         if busy:
-            self.input.setPlaceholderText(
-                "Debugging…" if self._cfg.debug_mode else "Generating…"
-            )
+            if self._cfg.debug_mode:
+                self.input.setPlaceholderText("Debugging…")
+            elif self._cfg.scan_mode:
+                self.input.setPlaceholderText("Scanning your code…")
+            else:
+                self.input.setPlaceholderText("Generating…")
         elif self._cfg.debug_mode:
             self.input.setPlaceholderText(
                 "Debug Mode — describe what to debug, or press Enter to scan the current file."
+            )
+        elif self._cfg.scan_mode:
+            self.input.setPlaceholderText(
+                "Scan Mode — ask for a hint, or press Enter to get stretch tasks. "
+                "Say \"give me the answer\" to break character."
             )
         else:
             self.input.setPlaceholderText(

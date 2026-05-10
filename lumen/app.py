@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 from . import __app_name__, __version__, theme
 from .activitybar import ActivityBar
 from .ai import AIPanel
+from .desktop import ensure_taskbar_icon_installed
 from .editor import CodeEditor
 from .findbar import FindBar
 from .highlighter import CodeHighlighter, comment_marker_for, detect_language
@@ -1527,6 +1528,13 @@ def run(argv: list[str] | None = None) -> int:
     # WM (GNOME, KDE, Wayland, etc.) shows the correct icon in the
     # taskbar / dock and groups extra windows under the same launcher.
     app.setDesktopFileName("Lumen")
+    # Best-effort: drop the bundled hicolor PNGs into ~/.local/share so
+    # the taskbar / dock can find a crisp pixmap at any size, even when
+    # the user hasn't run `install.sh`. Idempotent; quiet on failure.
+    try:
+        ensure_taskbar_icon_installed()
+    except Exception:
+        pass
     app.setStyle("Fusion")
     app.setStyleSheet(theme.stylesheet(theme.PALETTE))
     base_font = QFont("Inter")

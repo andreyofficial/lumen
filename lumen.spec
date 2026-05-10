@@ -19,6 +19,15 @@ block_cipher = None
 datas = [
     (str(ROOT / "assets" / "lumen.svg"), "assets"),
 ]
+# Bundle every pre-rendered hicolor PNG so the running app can install
+# them into the user's icon cache on first launch, and the taskbar /
+# tray show a crisp pixmap at any size.
+_icons_root = ROOT / "assets" / "icons"
+if _icons_root.is_dir():
+    for size_dir in sorted(_icons_root.iterdir()):
+        png = size_dir / "lumen.png"
+        if png.is_file():
+            datas.append((str(png), f"assets/icons/{size_dir.name}"))
 
 hiddenimports = [
     "PyQt6.QtSvg",

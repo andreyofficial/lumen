@@ -202,6 +202,14 @@ _SVGS: dict[str, str] = {
           <path d='M5.5 8.5 7 10M18.5 8.5 17 10M5.5 17 7 15.5M18.5 17 17 15.5'/>
         </svg>
     """,
+    "compass": """
+        <svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'
+             stroke='{c}' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>
+          <circle cx='12' cy='12' r='9'/>
+          <path d='m15.5 8.5-2 5-5 2 2-5z' fill='{c}' stroke='none'/>
+          <circle cx='12' cy='12' r='1' fill='{c}' stroke='none'/>
+        </svg>
+    """,
 }
 
 
@@ -338,9 +346,14 @@ def lang_icon(language_or_path: str, *, size: int = 18) -> QIcon:
 
 
 def app_icon(size: int = 128) -> QIcon:
-    """Render the gradient logo (color arg is ignored — gradient is baked in)."""
+    """Build the application / taskbar / system-tray icon.
+
+    Bakes in pixmaps at every standard hicolor size so window managers
+    pick the crispest variant for their context — 16/22/24 for tray
+    + tooltips, 32/48 for taskbars, 64+ for docks and Alt-Tab.
+    """
     qicon = QIcon()
-    for s in (32, 64, 128, 256):
+    for s in (16, 22, 24, 32, 48, 64, 128, 256, 512):
         qicon.addPixmap(_render(_SVGS["logo"], s, PALETTE.accent))
     return qicon
 
