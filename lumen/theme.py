@@ -934,6 +934,27 @@ def stylesheet(p: Palette) -> str:
         border-color: {p.accent};
     }}
 
+    /* Debug-mode toggle — sits flush-left on the composer row.
+       Lit-up when on so the user always sees the active mode. */
+    QPushButton#AIDebugToggle {{
+        background: {p.bg_input};
+        color: {p.text_muted};
+        border: 1px solid {p.border};
+        border-radius: 8px;
+        padding: 4px 10px 4px 8px;
+        font-size: 11px;
+        font-weight: 600;
+    }}
+    QPushButton#AIDebugToggle:hover {{
+        border-color: {p.accent};
+        color: {p.text};
+    }}
+    QPushButton#AIDebugToggle:checked {{
+        background: {p.accent_subtle};
+        color: {p.accent};
+        border-color: {p.accent};
+    }}
+
     QLabel#AIStatus {{
         color: {p.text_dim};
         font-size: 11px;

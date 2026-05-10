@@ -48,6 +48,16 @@ A fast, focused, professionally-styled code editor for Linux, built with PyQt6.
   the clock icon in the AI toolbar to switch between past chats, rename
   them, or delete them. The most recent conversation is restored when
   the editor reopens.
+- **AI Debug Mode** — toggle the bug icon next to the Stop button to
+  put the assistant into a code-review / optimisation mode. It receives
+  the current file, walks every reachable code path, and replies with
+  four sections: *Crashes & bugs*, *Edge cases*, *Performance /
+  optimisations*, and a *Patched version* of the whole file. Press Send
+  with an empty prompt while Debug Mode is on to fire a full-file audit.
+- **Monochrome language badges** — every editor tab and the file
+  explorer use small black-and-white badges (`Py`, `TS`, `JS`, `{ }`,
+  `</>`, `CSS`, `MD`, `>_`, `Rs`, `Go`, `Jv`, …) so the chrome stays
+  uniform and you can still scan file types at a glance.
 - **Taskbar / system-tray icon** — Lumen registers a tray icon while
   running. Right-click for quick actions (Show Lumen, New File, Open,
   Ask Lumen AI, Quit); single-click to toggle the window.

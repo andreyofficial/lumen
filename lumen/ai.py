@@ -92,6 +92,7 @@ class AIConfig:
     temperature: float = 0.4
     include_current_file: bool = False
     max_history: int = 16  # how many past messages to send to the API
+    debug_mode: bool = False  # extra "code-review / find bugs / optimise" pass
 
     @classmethod
     def load(cls, settings: QSettings) -> "AIConfig":
@@ -112,6 +113,9 @@ class AIConfig:
             cfg.max_history = int(settings.value("ai/max_history", cfg.max_history))
         except (TypeError, ValueError):
             pass
+        cfg.debug_mode = bool(
+            settings.value("ai/debug_mode", cfg.debug_mode, type=bool)
+        )
         return cfg
 
     def save(self, settings: QSettings) -> None:
@@ -123,6 +127,36 @@ class AIConfig:
         settings.setValue("ai/temperature", float(self.temperature))
         settings.setValue("ai/include_current_file", bool(self.include_current_file))
         settings.setValue("ai/max_history", int(self.max_history))
+        settings.setValue("ai/debug_mode", bool(self.debug_mode))
+
+
+# The system prompt that turns the AI into a debug + optimisation engineer.
+# We append this *in addition to* the user's normal system prompt so the
+# Lumen persona stays intact.
+DEBUG_SYSTEM_PROMPT = (
+    "You are now operating in DEBUG MODE. The user's current file is "
+    "attached above. Mentally simulate every reachable code path of "
+    "that file — branches, edge cases, exception paths, empty inputs, "
+    "boundary values, concurrency, IO failures, type confusions, and "
+    "off-by-one errors. Then produce a single response with these "
+    "sections, in this order, using markdown headings:\n"
+    "  ## Crashes & bugs\n"
+    "    - For each, state: where (line / function), what triggers it, "
+    "and a one-line root cause.\n"
+    "  ## Edge cases\n"
+    "    - Inputs / states the code does not handle gracefully.\n"
+    "  ## Performance / optimisations\n"
+    "    - Hot paths, redundant work, complexity wins, and cleaner "
+    "idioms — only suggest changes that are clearly worth the churn.\n"
+    "  ## Patched version\n"
+    "    - A single fenced code block of the **whole file** with all "
+    "fixes and optimisations applied. Preserve the original public API "
+    "and behaviour. Add brief inline `# ...` comments only where the "
+    "change is non-obvious.\n"
+    "If the file looks correct, say so explicitly under each heading "
+    "and emit an unchanged 'Patched version' so the user can still "
+    "diff it against their copy. Never invent code outside the file."
+)
 
 
 @dataclass
@@ -529,6 +563,26 @@ class AIPanel(QFrame):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(6)
+
+        # Debug-mode toggle. Lives flush-left so it stays put while the
+        # Send button on the right swaps with the red Stop button.
+        self.btn_debug = QPushButton("  Debug")
+        self.btn_debug.setObjectName("AIDebugToggle")
+        self.btn_debug.setIcon(icon("bug"))
+        self.btn_debug.setIconSize(QSize(14, 14))
+        self.btn_debug.setCheckable(True)
+        self.btn_debug.setChecked(self._cfg.debug_mode)
+        self.btn_debug.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_debug.setToolTip(
+            "Debug Mode\n"
+            "When on, every message is followed by a deep-scan of the\n"
+            "current file: crashes, edge cases, optimisations, and a\n"
+            "patched version. Press Send with an empty prompt to run a\n"
+            "full file audit."
+        )
+        self.btn_debug.toggled.connect(self._on_debug_toggled)
+        btn_row.addWidget(self.btn_debug)
+
         btn_row.addStretch(1)
 
         self.btn_stop = QPushButton("Stop")
@@ -778,8 +832,19 @@ class AIPanel(QFrame):
 
     def send_message(self) -> None:
         text = self.input.toPlainText().strip()
-        if not text or self._busy:
+        if self._busy:
             return
+        # Debug-mode lets the user fire a full file audit by hitting Send
+        # with an empty prompt — saves them typing the same thing twice.
+        if not text:
+            if self._cfg.debug_mode:
+                text = (
+                    "Run a full debug pass on the current file. Find every "
+                    "crash path, edge case, and optimisation opportunity, "
+                    "then return a patched version."
+                )
+            else:
+                return
         self.input.clear()
         self._append_user_bubble(text)
         if self.empty is not None:
@@ -812,13 +877,28 @@ class AIPanel(QFrame):
         self._cfg.save(self._settings)
         self._refresh_status()
 
+    def _on_debug_toggled(self, checked: bool) -> None:
+        """Persist the Debug Mode flag and refresh the placeholder text."""
+        self._cfg.debug_mode = bool(checked)
+        self._cfg.save(self._settings)
+        # File context is required for a meaningful debug pass — switch
+        # it on automatically when the user enables Debug Mode (but never
+        # silently off — they may want to re-disable it later).
+        if checked and not self._cfg.include_current_file:
+            self.context_chip.setChecked(True)
+        self._set_busy(self._busy)  # refresh placeholder
+        self._refresh_status()
+
     def _refresh_status(self) -> None:
         ctx_label = "with current file context" if self._cfg.include_current_file else "no file context"
         try:
             host = QUrl(self._cfg.base_url).host() or self._cfg.base_url
         except Exception:
             host = self._cfg.base_url
-        self.status_label.setText(f"{self._cfg.model}  ·  {host}  ·  {ctx_label}")
+        debug_label = "  ·  debug mode" if self._cfg.debug_mode else ""
+        self.status_label.setText(
+            f"{self._cfg.model}  ·  {host}  ·  {ctx_label}{debug_label}"
+        )
 
     def _append_user_bubble(self, text: str) -> None:
         bubble = _Bubble("user", self.chat_host)
@@ -886,8 +966,10 @@ class AIPanel(QFrame):
         if self._cfg.system_prompt:
             msgs.append({"role": "system", "content": self._cfg.system_prompt})
 
-        # Optional file context
-        if self._cfg.include_current_file and self._context_provider is not None:
+        # Optional file context. Debug Mode forces this on so the model
+        # actually has the code in front of it to audit.
+        wants_context = self._cfg.include_current_file or self._cfg.debug_mode
+        if wants_context and self._context_provider is not None:
             try:
                 ctx = self._context_provider()
             except Exception:
@@ -903,6 +985,12 @@ class AIPanel(QFrame):
                             f"```{language}\n{code}\n```"
                         ),
                     })
+
+        # Debug Mode persona — appended *after* the file context so the
+        # model has both the user's persona AND the file in scope when
+        # the debug instructions arrive.
+        if self._cfg.debug_mode:
+            msgs.append({"role": "system", "content": DEBUG_SYSTEM_PROMPT})
 
         # Conversation history (cap to max_history excluding the just-appended user message)
         history = [m for m in self._messages if m.content]
@@ -1086,9 +1174,17 @@ class AIPanel(QFrame):
         self.btn_send.setEnabled(not busy)
         self.btn_send.setVisible(not busy)
         self.btn_stop.setVisible(busy)
+        # Debug toggle stays enabled even while a request is streaming so
+        # the user can flip the mode for the next message.
         self.input.setEnabled(not busy)
         if busy:
-            self.input.setPlaceholderText("Generating…")
+            self.input.setPlaceholderText(
+                "Debugging…" if self._cfg.debug_mode else "Generating…"
+            )
+        elif self._cfg.debug_mode:
+            self.input.setPlaceholderText(
+                "Debug Mode — describe what to debug, or press Enter to scan the current file."
+            )
         else:
             self.input.setPlaceholderText(
                 "Ask Lumen anything…  (Enter to send, Shift+Enter for newline)"

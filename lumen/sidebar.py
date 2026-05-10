@@ -7,11 +7,12 @@ import shutil
 import subprocess
 from typing import Iterable
 
-from PyQt6.QtCore import QDir, QModelIndex, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QFileSystemModel, QGuiApplication
+from PyQt6.QtCore import QDir, QFileInfo, QModelIndex, QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QFileSystemModel, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
+    QFileIconProvider,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -26,7 +27,30 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .icons import icon
+from .icons import icon, lang_icon
+
+
+class _MonoFileIconProvider(QFileIconProvider):
+    """Replaces system icons in the file tree with the monochrome
+    language badges so the explorer matches the rest of the chrome."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._folder = icon("folder")
+        self._file_default = lang_icon("text")
+
+    def icon(self, info_or_type) -> QIcon:  # type: ignore[override]
+        if isinstance(info_or_type, QFileInfo):
+            if info_or_type.isDir():
+                return self._folder
+            return lang_icon(info_or_type.fileName())
+        # Called with QFileIconProvider.IconType — fall back to a sensible default.
+        try:
+            if info_or_type == QFileIconProvider.IconType.Folder:
+                return self._folder
+        except Exception:
+            pass
+        return self._file_default
 
 
 class FileTree(QFrame):
@@ -104,6 +128,8 @@ class FileTree(QFrame):
             QDir.Filter.AllDirs | QDir.Filter.Files | QDir.Filter.NoDotAndDotDot
         )
         self.model.setNameFilterDisables(False)
+        self._icon_provider = _MonoFileIconProvider()
+        self.model.setIconProvider(self._icon_provider)
 
         self.tree = QTreeView()
         self.tree.setModel(self.model)

@@ -41,7 +41,7 @@ from .ai import AIPanel
 from .editor import CodeEditor
 from .findbar import FindBar
 from .highlighter import CodeHighlighter, comment_marker_for, detect_language
-from .icons import app_icon, icon
+from .icons import app_icon, icon, lang_icon
 from .minimap import Minimap
 from .palette import CommandPalette
 from .preferences import Preferences, PreferencesDialog
@@ -715,7 +715,11 @@ class MainWindow(QMainWindow):
             fn(ed)
 
     def _add_tab(self, tab: _TabContainer) -> int:
-        idx = self.tabs.addTab(tab, tab.display_name())
+        idx = self.tabs.addTab(
+            tab,
+            lang_icon(tab.state.path or tab.state.language or "text"),
+            tab.display_name(),
+        )
         tab.title_changed.connect(lambda t=tab: self._refresh_tab_title(t))
         tab.cursor_changed.connect(self._on_cursor_changed)
         tab.language_changed.connect(self._on_language_changed)
@@ -762,6 +766,9 @@ class MainWindow(QMainWindow):
             return
         title = tab.display_name() + (" •" if tab.is_modified() else "")
         self.tabs.setTabText(idx, title)
+        self.tabs.setTabIcon(
+            idx, lang_icon(tab.state.path or tab.state.language or "text")
+        )
         if tab.state.path:
             self.tabs.setTabToolTip(idx, tab.state.path)
         if tab is self._current_tab():

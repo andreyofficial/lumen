@@ -193,6 +193,96 @@ _SVGS: dict[str, str] = {
           <path d='M12 7v5l3 2'/>
         </svg>
     """,
+    "bug": """
+        <svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'
+             stroke='{c}' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>
+          <rect x='7' y='8' width='10' height='10' rx='5'/>
+          <path d='M12 8V5M9 5l-1.5-2M15 5l1.5-2'/>
+          <path d='M7 12H4M17 12h3'/>
+          <path d='M5.5 8.5 7 10M18.5 8.5 17 10M5.5 17 7 15.5M18.5 17 17 15.5'/>
+        </svg>
+    """,
+}
+
+
+# ----------------------------------------------------------------------
+# Monochrome language / file-type badges
+# ----------------------------------------------------------------------
+# Each badge is a rounded outline rectangle with the language's short
+# label drawn inside. Everything stays in the active text colour so the
+# icons match the rest of the chrome. We render these alongside (and via
+# the same code path as) the regular `_SVGS`.
+
+def _badge(label: str, *, font_size: int = 9) -> str:
+    """Return a uniform mono badge SVG with the given short label."""
+    # Letter spacing is tightened a touch for double-character labels so
+    # they centre cleanly inside the 18-wide rect.
+    return f"""
+        <svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'
+             stroke='{{c}}' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'>
+          <rect x='3' y='5' width='18' height='14' rx='3'/>
+          <text x='12' y='15.6' text-anchor='middle'
+                font-family='Inter, Helvetica, Arial, sans-serif'
+                font-size='{font_size}' font-weight='700'
+                fill='{{c}}' stroke='none'>{label}</text>
+        </svg>
+    """
+
+
+_LANG_SVGS: dict[str, str] = {
+    "python":     _badge("Py"),
+    "javascript": _badge("JS"),
+    "typescript": _badge("TS"),
+    "json":       _badge("{}", font_size=10),
+    "html":       _badge("</>", font_size=8),
+    "css":        _badge("CSS", font_size=8),
+    "markdown":   _badge("MD"),
+    "c":          _badge("C", font_size=11),
+    "cpp":        _badge("C++", font_size=8),
+    "go":         _badge("Go"),
+    "rust":       _badge("Rs"),
+    "shell":      _badge(">_", font_size=10),
+    "yaml":       _badge("YML", font_size=7),
+    "toml":       _badge("TML", font_size=7),
+    "ini":        _badge("INI", font_size=7),
+    "sql":        _badge("SQL", font_size=7),
+    "ruby":       _badge("Rb"),
+    "java":       _badge("Jv"),
+    "kotlin":     _badge("Kt"),
+    "swift":      _badge("Sw"),
+    "lua":        _badge("Lua", font_size=8),
+    "php":        _badge("Php", font_size=8),
+    "text":       _badge("Aa"),
+}
+
+# File extension → language id. Mirrors `lumen.highlighter.detect_language`
+# for tabs/file-tree usage where we only have a path (not a populated tab
+# state yet).
+_EXT_TO_LANG: dict[str, str] = {
+    "py": "python", "pyw": "python", "pyi": "python",
+    "js": "javascript", "mjs": "javascript", "cjs": "javascript",
+    "jsx": "javascript",
+    "ts": "typescript", "tsx": "typescript",
+    "json": "json", "jsonc": "json",
+    "html": "html", "htm": "html", "xhtml": "html",
+    "css": "css", "scss": "css", "sass": "css", "less": "css",
+    "md": "markdown", "markdown": "markdown",
+    "c": "c", "h": "c",
+    "cc": "cpp", "cpp": "cpp", "cxx": "cpp", "hpp": "cpp", "hh": "cpp",
+    "go": "go",
+    "rs": "rust",
+    "sh": "shell", "bash": "shell", "zsh": "shell", "fish": "shell",
+    "yml": "yaml", "yaml": "yaml",
+    "toml": "toml",
+    "ini": "ini", "cfg": "ini", "conf": "ini",
+    "sql": "sql",
+    "rb": "ruby",
+    "java": "java",
+    "kt": "kotlin", "kts": "kotlin",
+    "swift": "swift",
+    "lua": "lua",
+    "php": "php", "phtml": "php",
+    "txt": "text",
 }
 
 
@@ -209,8 +299,13 @@ def _render(svg: str, size: int, color: str) -> QPixmap:
 
 
 def icon(name: str, color: str | None = None, size: int = 18) -> QIcon:
-    """Return a QIcon for the given name. Pass color to override default."""
-    svg = _SVGS.get(name)
+    """Return a QIcon for the given name. Pass color to override default.
+
+    Looks up the regular icon registry first, falling back to the language
+    badge registry so callers can request e.g. ``icon("python")`` and get
+    the monochrome ``Py`` badge.
+    """
+    svg = _SVGS.get(name) or _LANG_SVGS.get(name)
     if svg is None:
         return QIcon()
     c = color or PALETTE.text_muted
@@ -222,6 +317,24 @@ def icon(name: str, color: str | None = None, size: int = 18) -> QIcon:
         qicon.addPixmap(_render(svg, s, PALETTE.accent), QIcon.Mode.Active)
         qicon.addPixmap(_render(svg, s, PALETTE.accent), QIcon.Mode.Selected)
     return qicon
+
+
+def lang_icon(language_or_path: str, *, size: int = 18) -> QIcon:
+    """Return the monochrome badge for a given language id or filesystem path.
+
+    Examples:
+        ``lang_icon("python")``         -> the ``Py`` badge
+        ``lang_icon("/foo/bar.tsx")``   -> the ``TS`` badge
+        ``lang_icon("/foo/bar.unknown")`` -> a generic ``Aa`` badge
+    """
+    key = (language_or_path or "").strip().lower()
+    if "/" in key or "." in key:
+        # Treat as a path — sniff the extension.
+        _, _, ext = key.rpartition(".")
+        key = _EXT_TO_LANG.get(ext, "text")
+    if key not in _LANG_SVGS:
+        key = "text"
+    return icon(key, size=size)
 
 
 def app_icon(size: int = 128) -> QIcon:
@@ -242,4 +355,4 @@ def pixmap(name: str, size: int = 18, color: str | None = None) -> QPixmap:
     return _render(svg, size, color or PALETTE.text_muted)
 
 
-__all__ = ["icon", "app_icon", "pixmap"]
+__all__ = ["icon", "lang_icon", "app_icon", "pixmap"]
