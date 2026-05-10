@@ -43,6 +43,14 @@ A fast, focused, professionally-styled code editor for Linux, built with PyQt6.
   context attach, "Ask AI about selection" (`Ctrl+L`). Toggle the entire
   feature off in *AI → Enable AI Assistant*; the toggle persists across
   restarts.
+- **Chat autosave + history** — every AI conversation is debounced-saved
+  to `~/.config/Lumen/Lumen/ai-chats.json` as you type and stream. Click
+  the clock icon in the AI toolbar to switch between past chats, rename
+  them, or delete them. The most recent conversation is restored when
+  the editor reopens.
+- **Taskbar / system-tray icon** — Lumen registers a tray icon while
+  running. Right-click for quick actions (Show Lumen, New File, Open,
+  Ask Lumen AI, Quit); single-click to toggle the window.
 - **Tabs** with close buttons, modified-marker (•), drag-to-reorder, and
   tooltips.
 - **Activity bar + multi-view sidebar** — Explorer, Search, Structure, AI.
@@ -171,6 +179,8 @@ lumen/
 │   ├── minimap.py       # editor minimap
 │   ├── welcome.py       # welcome screen with shine buttons
 │   ├── ai.py            # AI assistant panel (OpenAI / Ollama)
+│   ├── chats.py         # JSON-backed chat history (autosave + restore)
+│   ├── preferences.py   # tabbed preferences dialog
 │   ├── pycharm.py       # GotoLine, RecentFiles, Outline, Run dialogs
 │   ├── shine.py         # ShineButton (animated soft-glow halo)
 │   ├── icons.py         # inline SVG icon registry

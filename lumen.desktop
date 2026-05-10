@@ -10,4 +10,6 @@ Terminal=false
 Categories=Development;TextEditor;IDE;
 MimeType=text/plain;text/x-python;text/x-c;text/x-c++src;text/x-shellscript;text/markdown;application/json;text/html;text/css;
 StartupNotify=true
+StartupWMClass=Lumen
+SingleMainWindow=true
 Keywords=editor;code;programming;text;

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QSystemTrayIcon,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -160,6 +161,7 @@ class MainWindow(QMainWindow):
         self._build_menus()
         self._build_toolbar()
         self._build_statusbar()
+        self._build_tray()
         self._wire_command_palette()
         self._restore_state()
 
@@ -1405,6 +1407,73 @@ class MainWindow(QMainWindow):
         if self._project_root():
             self._settings.setValue("last_folder", self._project_root())
 
+    # ================ System-tray (taskbar) icon ================
+
+    def _build_tray(self) -> None:
+        """Install a tray icon so Lumen has a persistent presence in the
+        notification area / system taskbar. Right-click for a quick menu;
+        click to bring the window forward."""
+        self.tray: QSystemTrayIcon | None = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        self.tray = QSystemTrayIcon(app_icon(), self)
+        self.tray.setToolTip(f"{__app_name__} — code editor")
+
+        menu = QMenu(self)
+
+        act_show = menu.addAction(icon("explorer"), "Show Lumen")
+        act_show.triggered.connect(self._tray_show_window)
+
+        act_new = menu.addAction(icon("new"), "New File")
+        act_new.triggered.connect(lambda: (self._tray_show_window(), self.new_file()))
+
+        act_open = menu.addAction(icon("open"), "Open File…")
+        act_open.triggered.connect(
+            lambda: (self._tray_show_window(), self.open_file_dialog())
+        )
+
+        menu.addSeparator()
+
+        act_ai = menu.addAction(icon("sparkles"), "Ask Lumen AI")
+        act_ai.triggered.connect(
+            lambda: (self._tray_show_window(), self.show_ai_panel())
+        )
+
+        menu.addSeparator()
+
+        act_tray_quit = menu.addAction(icon("close"), "Quit Lumen")
+        act_tray_quit.triggered.connect(self._tray_quit)
+
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._on_tray_activated)
+        self.tray.show()
+
+    def _tray_show_window(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        # Single-click / double-click toggles the window. The right-click
+        # context menu is handled by Qt automatically.
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            if self.isVisible() and not self.isMinimized() and self.isActiveWindow():
+                self.hide()
+            else:
+                self._tray_show_window()
+
+    def _tray_quit(self) -> None:
+        # Triggers the same flow as the window's close button — dirty tab
+        # prompts still apply, and `closeEvent` flushes the AI chat store.
+        self.close()
+
     # ================ Close handling ================
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
@@ -1428,6 +1497,13 @@ class MainWindow(QMainWindow):
                         event.ignore()
                         return
         self._persist_state()
+        # Make sure pending chat writes are flushed to disk before exit.
+        try:
+            self.sidebar_ai.chat_store().flush_now()
+        except Exception:
+            pass
+        if self.tray is not None:
+            self.tray.hide()
         super().closeEvent(event)
 
 
@@ -1440,6 +1516,10 @@ def run(argv: list[str] | None = None) -> int:
     app.setApplicationName(__app_name__)
     app.setApplicationDisplayName(__app_name__)
     app.setOrganizationName("Lumen")
+    # Bind the running window to the installed `.desktop` entry so the
+    # WM (GNOME, KDE, Wayland, etc.) shows the correct icon in the
+    # taskbar / dock and groups extra windows under the same launcher.
+    app.setDesktopFileName("Lumen")
     app.setStyle("Fusion")
     app.setStyleSheet(theme.stylesheet(theme.PALETTE))
     base_font = QFont("Inter")

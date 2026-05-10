@@ -185,6 +185,14 @@ _SVGS: dict[str, str] = {
           <path d='M3 21v-5h5'/>
         </svg>
     """,
+    "history": """
+        <svg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'
+             stroke='{c}' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'>
+          <path d='M3 12a9 9 0 1 0 3-6.7L3 8'/>
+          <path d='M3 3v5h5'/>
+          <path d='M12 7v5l3 2'/>
+        </svg>
+    """,
 }
 
 

@@ -42,6 +42,7 @@ from PyQt6.QtNetwork import (
     QNetworkReply,
     QNetworkRequest,
 )
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -50,8 +51,11 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -63,6 +67,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .chats import ChatStore, StoredChat
 from .icons import icon
 from .shine import ShineButton
 from .theme import PALETTE
@@ -406,7 +411,13 @@ class AIPanel(QFrame):
     file_open_requested = pyqtSignal(str)
     enabled_changed = pyqtSignal(bool)
 
-    def __init__(self, settings: QSettings, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: QSettings,
+        parent: QWidget | None = None,
+        *,
+        store: ChatStore | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("AIPanel")
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -418,6 +429,14 @@ class AIPanel(QFrame):
         self._sse_buffer = b""
         self._reply: QNetworkReply | None = None
         self._busy = False
+
+        # Persistent chat history. Either injected (handy for tests) or
+        # built from the default JSON file under the app config dir.
+        self._store = store if store is not None else ChatStore(parent=self)
+        self._active_chat_id: str | None = None
+        # While we restore a chat from disk we must not re-write the same
+        # messages back into the store via our normal hooks.
+        self._restoring = False
 
         # External "context provider" hooks set by the main window.
         self._context_provider = None  # callable -> (filename, language, code) | None
@@ -446,6 +465,17 @@ class AIPanel(QFrame):
         tlay.addWidget(self.context_chip)
 
         tlay.addStretch(1)
+
+        self.btn_history = QToolButton()
+        self.btn_history.setIcon(icon("history"))
+        self.btn_history.setIconSize(QSize(16, 16))
+        self.btn_history.setToolTip("Chat history")
+        self.btn_history.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_history.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._history_menu = QMenu(self.btn_history)
+        self._history_menu.aboutToShow.connect(self._populate_history_menu)
+        self.btn_history.setMenu(self._history_menu)
+        tlay.addWidget(self.btn_history)
 
         self.btn_clear = QToolButton()
         self.btn_clear.setIcon(icon("refresh"))
@@ -527,6 +557,9 @@ class AIPanel(QFrame):
         root.addWidget(self.status_label)
         root.addWidget(input_row)
 
+        # Restore the most-recent chat (if any) from the on-disk store.
+        self._restore_active_chat()
+
     # ---- Empty state ----
 
     def _build_empty_state(self) -> QFrame:
@@ -604,7 +637,21 @@ class AIPanel(QFrame):
             self.cancel_request()
 
     def new_chat(self) -> None:
+        """Start a fresh conversation. The previous one is preserved on disk."""
         self.cancel_request()
+        self._clear_bubbles()
+        # Only spawn a brand-new chat in the store if the current chat
+        # actually has content; otherwise reuse the empty one.
+        active = self._store.active()
+        if active is None or active.messages:
+            chat = self._store.new_chat()
+        else:
+            chat = active
+        self._active_chat_id = chat.id
+        if self.empty is not None:
+            self.empty.show()
+
+    def _clear_bubbles(self) -> None:
         for msg in list(self._messages):
             if msg.bubble is not None:
                 row = msg.bubble.parentWidget()
@@ -612,8 +659,120 @@ class AIPanel(QFrame):
                     row.deleteLater()
         self._messages.clear()
         self._current_assistant = None
+
+    # ---- Chat history persistence ----
+
+    def chat_store(self) -> ChatStore:
+        return self._store
+
+    def _restore_active_chat(self) -> None:
+        """On startup, repopulate the panel from the most-recent chat."""
+        chat = self._store.active()
+        if chat is None:
+            chat = self._store.new_chat()
+        self._load_chat(chat)
+
+    def _load_chat(self, chat: StoredChat) -> None:
+        self.cancel_request()
+        self._clear_bubbles()
+        self._active_chat_id = chat.id
+        # Avoid re-saving every restored bubble back through our hooks.
+        self._restoring = True
+        try:
+            for stored in chat.messages:
+                if stored.role == "user":
+                    bubble = _Bubble("user", self.chat_host)
+                    bubble.set_text(stored.content)
+                    self._add_bubble_row(bubble)
+                    self._messages.append(_Message("user", stored.content, bubble))
+                else:
+                    bubble = _Bubble("assistant", self.chat_host)
+                    bubble.set_text(stored.content or " ")
+                    self._add_bubble_row(bubble)
+                    self._messages.append(
+                        _Message("assistant", stored.content, bubble)
+                    )
+        finally:
+            self._restoring = False
         if self.empty is not None:
-            self.empty.show()
+            self.empty.setVisible(not chat.messages)
+
+    def switch_to_chat(self, chat_id: str) -> None:
+        chat = self._store.get(chat_id)
+        if chat is None:
+            return
+        self._store.set_active(chat.id)
+        self._load_chat(chat)
+
+    def _populate_history_menu(self) -> None:
+        menu = self._history_menu
+        menu.clear()
+
+        chats = self._store.chats()
+        if not chats:
+            empty_action = QAction("(no past chats)", menu)
+            empty_action.setEnabled(False)
+            menu.addAction(empty_action)
+        else:
+            for chat in chats:
+                title = chat.title or "Untitled"
+                if len(title) > 50:
+                    title = title[:50] + "…"
+                marker = "•  " if chat.id == self._active_chat_id else "    "
+                action = QAction(f"{marker}{title}", menu)
+                action.setData(chat.id)
+                if chat.id == self._active_chat_id:
+                    f = action.font()
+                    f.setBold(True)
+                    action.setFont(f)
+                action.triggered.connect(
+                    lambda _checked=False, cid=chat.id: self.switch_to_chat(cid)
+                )
+                menu.addAction(action)
+
+        menu.addSeparator()
+
+        new_action = QAction("New chat", menu)
+        new_action.triggered.connect(self.new_chat)
+        menu.addAction(new_action)
+
+        if self._active_chat_id is not None:
+            rename_action = QAction("Rename current chat…", menu)
+            rename_action.triggered.connect(self._rename_current_chat)
+            menu.addAction(rename_action)
+
+            delete_action = QAction("Delete current chat", menu)
+            delete_action.triggered.connect(self._delete_current_chat)
+            menu.addAction(delete_action)
+
+    def _rename_current_chat(self) -> None:
+        if self._active_chat_id is None:
+            return
+        chat = self._store.get(self._active_chat_id)
+        if chat is None:
+            return
+        new_title, ok = QInputDialog.getText(
+            self, "Rename chat", "Title:", text=chat.title
+        )
+        if ok:
+            self._store.rename(chat.id, new_title)
+
+    def _delete_current_chat(self) -> None:
+        if self._active_chat_id is None:
+            return
+        chat = self._store.get(self._active_chat_id)
+        if chat is None:
+            return
+        ans = QMessageBox.question(
+            self,
+            "Delete chat",
+            f"Delete the chat “{chat.title}”? This cannot be undone.",
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        self._store.delete(chat.id)
+        next_chat = self._store.active() or self._store.new_chat()
+        self._load_chat(next_chat)
 
     # ---- Sending ----
 
@@ -640,7 +799,11 @@ class AIPanel(QFrame):
             self._current_assistant.content = "_(stopped)_"
             if self._current_assistant.bubble is not None:
                 self._current_assistant.bubble.set_text("_(stopped)_")
+            self._persist_update_last(self._current_assistant.content)
+        elif self._current_assistant is not None:
+            self._persist_update_last(self._current_assistant.content)
         self._current_assistant = None
+        self._store.flush_now()
 
     # ---- Internal ----
 
@@ -664,6 +827,7 @@ class AIPanel(QFrame):
         self._messages.append(_Message("user", text, bubble))
         if self.empty is not None:
             self.empty.hide()
+        self._persist_append("user", text)
 
     def _start_assistant_bubble(self) -> _Bubble:
         bubble = _Bubble("assistant", self.chat_host)
@@ -674,7 +838,30 @@ class AIPanel(QFrame):
         self._current_assistant = msg
         if self.empty is not None:
             self.empty.hide()
+        self._persist_append("assistant", "")
         return bubble
+
+    # ---- Helpers that bridge UI state into the on-disk store ----
+
+    def _ensure_active_chat_id(self) -> str | None:
+        if self._restoring:
+            return None
+        if self._active_chat_id is None:
+            chat = self._store.active() or self._store.new_chat()
+            self._active_chat_id = chat.id
+        return self._active_chat_id
+
+    def _persist_append(self, role: str, content: str) -> None:
+        chat_id = self._ensure_active_chat_id()
+        if chat_id is None:
+            return
+        self._store.append_message(chat_id, role, content)
+
+    def _persist_update_last(self, content: str) -> None:
+        chat_id = self._ensure_active_chat_id()
+        if chat_id is None:
+            return
+        self._store.update_last_message(chat_id, content)
 
     def _add_bubble_row(self, bubble: _Bubble) -> None:
         row = _BubbleRow(bubble, self.chat_host)
@@ -834,6 +1021,8 @@ class AIPanel(QFrame):
             self._current_assistant.content += text
         if self._current_assistant.bubble is not None:
             self._current_assistant.bubble.set_text(self._current_assistant.content)
+        # Stream into the store too — the debounced flush coalesces these.
+        self._persist_update_last(self._current_assistant.content)
         self._scroll_to_bottom()
 
     def _on_finished(self) -> None:
@@ -858,6 +1047,13 @@ class AIPanel(QFrame):
             self._current_assistant.content = "_(no response)_"
             if self._current_assistant.bubble is not None:
                 self._current_assistant.bubble.set_text(self._current_assistant.content)
+            self._persist_update_last(self._current_assistant.content)
+        elif self._current_assistant is not None:
+            # Final flush for the streamed content — guarantees the
+            # finished message is on disk even if the debounce is
+            # still pending.
+            self._persist_update_last(self._current_assistant.content)
+            self._store.flush_now()
 
         self._current_assistant = None
         self._reply = None
@@ -881,6 +1077,7 @@ class AIPanel(QFrame):
             self._current_assistant.content = f"**Connection failed.**\n\n`{msg}`{hint}"
             if self._current_assistant.bubble is not None:
                 self._current_assistant.bubble.set_text(self._current_assistant.content)
+            self._persist_update_last(self._current_assistant.content)
 
     # ---- Misc ----
 
@@ -902,12 +1099,15 @@ class AIPanel(QFrame):
             self._current_assistant.content = message
             if self._current_assistant.bubble is not None:
                 self._current_assistant.bubble.set_text(message)
+            self._persist_update_last(message)
         else:
             bubble = self._start_assistant_bubble()
             bubble.set_text(message)
+            self._persist_update_last(message)
         self._set_busy(False)
         self._reply = None
         self._current_assistant = None
+        self._store.flush_now()
 
     # ---- External slash-command-style helpers ----
 
