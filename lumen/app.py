@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QSettings, QSize, Qt, pyqtSignal
@@ -462,8 +463,24 @@ class MainWindow(QMainWindow):
             lambda: self._switch_sidebar("structure")
         )
 
-        self.act_run_file = QAction(icon("file"), "Run Current File", self)
+        # Run-in-terminal — primary "play" action. Sends the resolved
+        # runner command into the integrated terminal so the user can
+        # interact with the process (stdin, ANSI output, history
+        # recall with Up-arrow).
+        self.act_run_in_terminal = QAction(icon("play"), "Run in Terminal", self)
+        self.act_run_in_terminal.setShortcut("F5")
+        self.act_run_in_terminal.setToolTip(
+            "Run the current file in the integrated terminal (F5)"
+        )
+        self.act_run_in_terminal.triggered.connect(self.run_current_file_in_terminal)
+
+        # Run-in-console — the original silent runner; still useful for
+        # long-output / non-interactive runs.
+        self.act_run_file = QAction(icon("file"), "Run in Console", self)
         self.act_run_file.setShortcut("Shift+F10")
+        self.act_run_file.setToolTip(
+            "Run the current file in the read-only Run console (Shift+F10)"
+        )
         self.act_run_file.triggered.connect(self.run_current_file)
 
         self.act_stop_run = QAction("Stop Running Process", self)
@@ -562,7 +579,9 @@ class MainWindow(QMainWindow):
         nav_menu.addAction(self.act_palette)
 
         run_menu: QMenu = mb.addMenu("&Run")
+        run_menu.addAction(self.act_run_in_terminal)
         run_menu.addAction(self.act_run_file)
+        run_menu.addSeparator()
         run_menu.addAction(self.act_stop_run)
 
         view_menu: QMenu = mb.addMenu("&View")
@@ -618,6 +637,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_find)
         tb.addAction(self.act_search_in_folder)
         tb.addAction(self.act_palette)
+        tb.addSeparator()
+        tb.addAction(self.act_run_in_terminal)
         tb.addAction(self.act_run_file)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1189,12 +1210,66 @@ class MainWindow(QMainWindow):
         popup.exec()
 
     def run_current_file(self) -> None:
-        tab = self._current_tab()
-        if not tab:
+        path = self._ensure_runnable_path()
+        if path is None:
+            return
+        self._show_run_panel()
+        err = self.run_panel.run_file(
+            path,
+            cwd=self._project_root() or os.path.dirname(path),
+        )
+        if err:
+            QMessageBox.warning(self, "Run", err)
+
+    def run_current_file_in_terminal(self) -> None:
+        """Run the current file inside the integrated terminal.
+
+        Same validation as :meth:`run_current_file`, but the resolved
+        command is fed into the terminal so the user can type stdin,
+        recall it with Up-arrow, and see ANSI-stripped live output.
+        """
+        path = self._ensure_runnable_path()
+        if path is None:
+            return
+        cmd = runner_for(path)
+        if cmd is None:
             QMessageBox.information(
-                self, "Run", "Open a file first."
+                self, "Run",
+                f"No runner is configured for {os.path.basename(path)}.",
             )
             return
+        cwd = self._project_root() or os.path.dirname(path) or os.getcwd()
+        self.terminal.set_cwd(cwd)
+        rel = os.path.relpath(path, cwd) if cwd else path
+        full = list(cmd) + [rel]
+        cmdline = " ".join(shlex.quote(part) for part in full)
+        # Reveal the terminal tab + dock if hidden, then inject the
+        # command. Focus stays in the terminal so Ctrl+C / further
+        # commands are immediate.
+        self.bottom_dock.show()
+        self.bottom_dock.setCurrentWidget(self.terminal)
+        self.act_toggle_terminal.setChecked(True)
+        self._settings.setValue("terminal_visible", True)
+        if not self.terminal.run_command(cmdline):
+            # Another command is already running; surface a Qt status
+            # message but don't pop a modal — the terminal panel already
+            # told the user inline.
+            self.statusBar().showMessage(
+                "Terminal is busy — kill the running command first.", 4000
+            )
+            return
+        self.terminal.focus_input()
+
+    def _ensure_runnable_path(self) -> str | None:
+        """Shared prelude: validate active tab + save unsaved changes.
+
+        Returns the resolved file path, or ``None`` if the user
+        cancelled / there's nothing runnable.
+        """
+        tab = self._current_tab()
+        if not tab:
+            QMessageBox.information(self, "Run", "Open a file first.")
+            return None
         if not tab.state.path:
             res = QMessageBox.question(
                 self, "Run",
@@ -1203,9 +1278,9 @@ class MainWindow(QMainWindow):
                 | QMessageBox.StandardButton.Cancel,
             )
             if res != QMessageBox.StandardButton.Save:
-                return
+                return None
             if not self._save_tab(tab):
-                return
+                return None
         if tab.is_modified() and tab.state.path:
             tab.save()
         if runner_for(tab.state.path or "") is None:
@@ -1214,14 +1289,8 @@ class MainWindow(QMainWindow):
                 f"No runner is configured for "
                 f"{os.path.basename(tab.state.path or '')}.",
             )
-            return
-        self._show_run_panel()
-        err = self.run_panel.run_file(
-            tab.state.path,
-            cwd=self._project_root() or os.path.dirname(tab.state.path),
-        )
-        if err:
-            QMessageBox.warning(self, "Run", err)
+            return None
+        return tab.state.path
 
     def _goto_line_in_current(self, line: int) -> None:
         ed = self._current_editor()

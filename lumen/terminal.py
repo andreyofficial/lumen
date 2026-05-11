@@ -144,6 +144,42 @@ class TerminalPanel(QFrame):
             self._proc.kill()
             self._append("\n^C process killed\n", color=theme.PALETTE.warning)
 
+    def run_command(self, cmd: str) -> bool:
+        """Inject *cmd* into the terminal as if the user had typed it.
+
+        Echoes the prompt + command into the view, adds it to history so
+        Up-arrow recalls it, then dispatches through the same path as a
+        manual Enter (so built-ins like ``cd`` still work).
+
+        Returns ``False`` if another command is already running, in which
+        case nothing happens. The caller can decide whether to surface a
+        message to the user.
+        """
+        if not cmd or not cmd.strip():
+            return False
+        if self._proc and self._proc.state() != QProcess.ProcessState.NotRunning:
+            self._append(
+                "A command is already running in the terminal — "
+                "press the close (✕) button or Ctrl+C to kill it first.\n",
+                color=theme.PALETTE.warning,
+            )
+            return False
+        self._history.append(cmd)
+        del self._history[-200:-100]
+        self._history_idx = len(self._history)
+        self._print_command(cmd)
+        stripped = cmd.strip()
+        if stripped == "clear":
+            self.clear()
+        elif stripped in ("exit", "quit"):
+            self._append("(close the terminal panel with Ctrl+`)\n",
+                         color=theme.PALETTE.text_dim)
+        elif stripped.startswith("cd"):
+            self._builtin_cd(stripped)
+        else:
+            self._run(cmd)
+        return True
+
     def setVisible(self, visible: bool) -> None:  # noqa: N802
         super().setVisible(visible)
         self.visibility_changed.emit(visible)
