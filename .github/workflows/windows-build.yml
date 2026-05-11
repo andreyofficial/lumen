@@ -1,0 +1,107 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      onefile:
+        description: "Build a single-file lumen.exe (vs. a one-folder bundle)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      LUMEN_ONEFILE: ${{ github.event.inputs.onefile == 'false' && '' || '1' }}
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.4" pillow
+
+      - name: Generate lumen.ico from bundled PNGs
+        shell: pwsh
+        run: |
+          $py = @'
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path('.').resolve()
+          icons_root = root / 'assets' / 'icons'
+          sizes = [16, 24, 32, 48, 64, 128, 256]
+          imgs = []
+          for s in sizes:
+              p = icons_root / f'{s}x{s}' / 'lumen.png'
+              if p.is_file():
+                  imgs.append(Image.open(p).convert('RGBA'))
+          if not imgs:
+              raise SystemExit('No PNG icons found under assets/icons/<size>/lumen.png')
+          base = max(imgs, key=lambda im: im.size[0])
+          out = root / 'lumen.ico'
+          base.save(out, format='ICO', sizes=[(im.size[0], im.size[1]) for im in imgs])
+          print(f'Wrote {out} ({out.stat().st_size} bytes, {len(imgs)} sizes)')
+          '@
+          $py | python -
+
+      - name: Smoke-import the app
+        shell: pwsh
+        run: |
+          python -c "import lumen.app; print('import OK')"
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        env:
+          LUMEN_SPECPATH: ${{ github.workspace }}
+        run: |
+          pyinstaller --noconfirm --clean lumen.spec
+
+      - name: Show build output
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -Recurse | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Upload single-file exe artifact
+        if: env.LUMEN_ONEFILE == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-windows-exe
+          path: dist/lumen.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload one-folder bundle artifact
+        if: env.LUMEN_ONEFILE != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-windows-folder
+          path: dist/lumen/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach exe to GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v') && env.LUMEN_ONEFILE == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/lumen.exe
