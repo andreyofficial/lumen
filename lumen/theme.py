@@ -6,6 +6,12 @@ syntax token gets its own hue so the editor reads at a glance: keywords,
 strings, numbers, functions, classes, types, etc. all carry meaning by
 colour. Hero buttons use a glossy gradient + a soft outer glow halo
 (see ``lumen.shine.ShineButton``) for the FileHub-style polished look.
+
+The palettes are intentionally **eye-friendly**: the dark theme uses a
+warm dark grey (never pure ``#000000``) with off-white text to avoid
+halation on modern displays, and the light theme uses a warm off-white
+cream rather than pure white. Syntax colours are pastel-leaning so
+they stay legible without "glowing" at the reader.
 """
 
 from __future__ import annotations
@@ -88,153 +94,161 @@ class Palette:
     syn_link: str
 
 
-# ---------------- Dark — true black / monochrome ----------------
+# ---------------- Dark — warm dark grey, eye-friendly ----------------
 
 DARK = Palette(
     name="dark",
 
-    bg_app="#000000",
-    bg_sidebar="#0a0a0a",
-    bg_editor="#000000",
-    bg_panel="#0f0f0f",
-    bg_elevated="#161616",
-    bg_hover="#1c1c1c",
-    bg_active="#262626",
-    bg_input="#0d0d0d",
+    # Warm dark grey instead of pure #000 to avoid halation on OLED /
+    # high-contrast displays. The whole surface ramp keeps a tiny blue
+    # tint so it reads as "dark" rather than "muddy brown".
+    bg_app="#1a1a1d",
+    bg_sidebar="#1f1f23",
+    bg_editor="#1d1d20",
+    bg_panel="#212126",
+    bg_elevated="#27272d",
+    bg_hover="#2d2d34",
+    bg_active="#33333a",
+    bg_input="#1f1f23",
 
-    border="#1f1f1f",
-    border_strong="#2e2e2e",
-    divider="#141414",
+    border="#2a2a30",
+    border_strong="#393944",
+    divider="#252529",
 
-    text="#f5f5f5",
-    text_muted="#a3a3a3",
-    text_dim="#6e6e6e",
-    text_inverse="#000000",
+    # Off-white text (not pure #fff) drops the contrast ratio from
+    # ~21:1 to a still-comfortably-AAA ~12:1 — way easier on the eyes
+    # over long sessions.
+    text="#d4d4d4",
+    text_muted="#909096",
+    text_dim="#6a6a72",
+    text_inverse="#1a1a1d",
 
-    # Accent ramp uses pure white for emphasis; tonal stops below it.
-    accent="#ffffff",
-    accent_hover="#ededed",
-    accent_pressed="#cfcfcf",
-    accent_subtle="#1a1a1a",
-    accent2="#bdbdbd",
+    # Accent ramp is soft off-white so highlights don't punch.
+    accent="#e8e8ec",
+    accent_hover="#d4d4d8",
+    accent_pressed="#bcbcc4",
+    accent_subtle="#2a2a30",
+    accent2="#a8a8b0",
     # Graphite gradient — used for the brand button & AI user bubble.
-    # Stays dark enough that hard-coded white text remains readable.
-    accent_grad_a="#3f3f3f",
-    accent_grad_b="#707070",
+    accent_grad_a="#3a3a42",
+    accent_grad_b="#5c5c66",
 
-    # Primary CTA: white pill with black text (inverse).
-    cta="#ffffff",
-    cta_hover="#ededed",
-    cta_pressed="#cfcfcf",
-    cta_text="#000000",
+    # Primary CTA: soft white pill with dark text (inverse).
+    cta="#e8e8ec",
+    cta_hover="#d4d4d8",
+    cta_pressed="#bcbcc4",
+    cta_text="#1a1a1d",
 
-    # Semantic: monochrome with one allowance for error red so
-    # destructive states stay unambiguous.
-    info="#bdbdbd",
-    success="#e5e5e5",
-    warning="#cfcfcf",
-    error="#ef4444",
+    # Semantic — neutral grays with a desaturated red for danger so
+    # destructive states stay unambiguous without screaming.
+    info="#a8a8b0",
+    success="#cfcfd6",
+    warning="#bcbcc4",
+    error="#d9685c",
 
-    line_number_bg="#000000",
-    line_number_fg="#3a3a3a",
-    line_number_fg_active="#ffffff",
-    current_line_bg="#11151f",   # subtle blue-tinted highlight for active line
-    selection_bg="#3a3a3a",
-    selection_inactive_bg="#222222",
-    matching_bracket_bg="#3a2f60",  # purple-tinted to pair with keyword pink
-    indent_guide="#161616",
+    line_number_bg="#1a1a1d",
+    line_number_fg="#4a4a52",
+    line_number_fg_active="#d4d4d4",
+    current_line_bg="#26262c",
+    selection_bg="#3d3d46",
+    selection_inactive_bg="#28282e",
+    matching_bracket_bg="#3d3645",
+    indent_guide="#2a2a30",
 
-    # Vibrant neon-on-black syntax palette. Each token type owns a hue;
-    # the high saturation against the pure black bg makes them appear
-    # to glow.
-    syn_comment="#7c8298",     # muted blue-gray (italic)
-    syn_keyword="#ff5da2",     # hot pink (bold)
-    syn_keyword2="#c8a3ff",    # lavender (italic)   — self / cls / this
-    syn_string="#4fffa3",      # neon mint
-    syn_number="#ffc94a",      # amber
-    syn_function="#5be0ff",    # bright cyan (bold)
-    syn_class="#ffd84a",       # gold (bold)
-    syn_decorator="#ff8ec0",   # rose (italic)
-    syn_operator="#ff5da2",    # hot pink
-    syn_constant="#b48bff",    # purple (bold)
-    syn_type="#92e3ff",        # aqua
-    syn_tag="#ff7fb6",         # rose-pink (bold)
-    syn_attribute="#d6c0ff",   # light violet
-    syn_punct="#cbd5e1",       # silver
-    syn_heading="#ffffff",     # bold white
-    syn_link="#5be0ff",        # cyan
+    # Pastel-leaning syntax palette. Each token type still owns a hue
+    # (keyword vs string vs function) but the saturation is tuned so
+    # the editor reads like a printed page, not a neon sign.
+    syn_comment="#6a737d",     # muted slate (italic)
+    syn_keyword="#c586c0",     # soft magenta (bold)
+    syn_keyword2="#9b8ed8",    # muted lavender (italic) — self / cls
+    syn_string="#a9c97b",      # sage green
+    syn_number="#d4a574",      # warm amber
+    syn_function="#7eb8d6",    # steel blue (bold)
+    syn_class="#dcbe6f",       # warm gold (bold)
+    syn_decorator="#c98aaf",   # muted rose (italic)
+    syn_operator="#c586c0",    # soft magenta
+    syn_constant="#a18cd1",    # soft purple (bold)
+    syn_type="#7fc8c0",        # sea teal
+    syn_tag="#c98aaf",         # rose (bold)
+    syn_attribute="#bdb1d8",   # dusty violet
+    syn_punct="#a9b2c0",       # slate
+    syn_heading="#e0e0e0",     # bold soft white
+    syn_link="#7eb8d6",        # steel blue
 )
 
 
-# ---------------- Light — pure white / monochrome ----------------
+# ---------------- Light — warm cream off-white, eye-friendly ----------------
 
 LIGHT = Palette(
     name="light",
 
-    bg_app="#ffffff",
-    bg_sidebar="#fafafa",
-    bg_editor="#ffffff",
+    # Warm cream off-white instead of pure #fff to avoid the "snow
+    # blindness" effect of staring into a max-luminance screen.
+    bg_app="#fbfbf8",
+    bg_sidebar="#f4f4f0",
+    bg_editor="#fbfbf8",
     bg_panel="#ffffff",
-    bg_elevated="#ffffff",
-    bg_hover="#f0f0f0",
-    bg_active="#e5e5e5",
-    bg_input="#fafafa",
+    bg_elevated="#f9f9f5",
+    bg_hover="#eeeee8",
+    bg_active="#e3e3dc",
+    bg_input="#f4f4f0",
 
-    border="#e5e5e5",
-    border_strong="#cfcfcf",
-    divider="#f0f0f0",
+    border="#e0e0d8",
+    border_strong="#c8c8c0",
+    divider="#ededec",
 
-    text="#000000",
-    text_muted="#525252",
-    text_dim="#888888",
-    text_inverse="#ffffff",
+    # Soft "ink" instead of pure black for the body text.
+    text="#2c2c30",
+    text_muted="#5c5c66",
+    text_dim="#8a8a92",
+    text_inverse="#fbfbf8",
 
-    accent="#000000",
-    accent_hover="#1f1f1f",
-    accent_pressed="#2e2e2e",
-    accent_subtle="#f0f0f0",
-    accent2="#3a3a3a",
-    accent_grad_a="#3f3f3f",
-    accent_grad_b="#707070",
+    accent="#2c2c30",
+    accent_hover="#1a1a1d",
+    accent_pressed="#0d0d10",
+    accent_subtle="#ededec",
+    accent2="#5c5c66",
+    accent_grad_a="#3a3a42",
+    accent_grad_b="#5c5c66",
 
-    cta="#000000",
-    cta_hover="#1f1f1f",
-    cta_pressed="#2e2e2e",
-    cta_text="#ffffff",
+    cta="#2c2c30",
+    cta_hover="#1a1a1d",
+    cta_pressed="#0d0d10",
+    cta_text="#fbfbf8",
 
-    info="#525252",
-    success="#2e2e2e",
-    warning="#525252",
-    error="#cc0000",
+    info="#5c5c66",
+    success="#3a3a42",
+    warning="#5c5c66",
+    error="#b85a52",
 
-    line_number_bg="#ffffff",
-    line_number_fg="#cfcfcf",
-    line_number_fg_active="#000000",
-    current_line_bg="#f5f5f5",
-    selection_bg="#cfcfcf",
-    selection_inactive_bg="#e5e5e5",
-    matching_bracket_bg="#d4d4d4",
-    indent_guide="#f0f0f0",
+    line_number_bg="#fbfbf8",
+    line_number_fg="#c8c8c0",
+    line_number_fg_active="#2c2c30",
+    current_line_bg="#f3f3ee",
+    selection_bg="#d4d4cc",
+    selection_inactive_bg="#e3e3dc",
+    matching_bracket_bg="#d4d0e0",
+    indent_guide="#ededec",
 
-    # Saturated-but-readable syntax palette for white background. Same
-    # semantic mapping as the dark theme, just darker hues so they pass
-    # contrast on white.
-    syn_comment="#6c6f93",
-    syn_keyword="#c026d3",     # bold magenta
-    syn_keyword2="#7c3aed",    # violet (italic) — self / cls / this
-    syn_string="#15803d",      # forest green
-    syn_number="#b45309",      # burnt amber
-    syn_function="#0e7490",    # deep teal (bold)
-    syn_class="#92400e",       # dark gold (bold)
-    syn_decorator="#be185d",   # deep rose (italic)
-    syn_operator="#c026d3",
-    syn_constant="#6d28d9",    # deep violet (bold)
-    syn_type="#0d9488",        # teal
-    syn_tag="#be185d",
-    syn_attribute="#4f46e5",   # indigo
+    # Desaturated syntax palette for the cream background. Same
+    # semantic mapping as the dark theme — every hue is tuned for
+    # legibility rather than punch.
+    syn_comment="#7d808d",     # soft slate (italic)
+    syn_keyword="#a32b9e",     # softer magenta (bold)
+    syn_keyword2="#6b3aac",    # muted violet (italic) — self / cls
+    syn_string="#3f7d2a",      # forest green
+    syn_number="#9d5408",      # warm amber
+    syn_function="#1e6b8a",    # deep steel teal (bold)
+    syn_class="#7d3a08",       # dark gold (bold)
+    syn_decorator="#9c2d5a",   # deep rose (italic)
+    syn_operator="#a32b9e",    # softer magenta
+    syn_constant="#5d2eb5",    # soft violet (bold)
+    syn_type="#0d7d70",        # deep teal
+    syn_tag="#9c2d5a",         # deep rose (bold)
+    syn_attribute="#3f3aaf",   # softer indigo
     syn_punct="#475569",       # slate
-    syn_heading="#000000",
-    syn_link="#0891b2",        # cyan-700
+    syn_heading="#1a1a1d",     # bold soft black
+    syn_link="#0e6d8a",        # deep cyan
 )
 
 
