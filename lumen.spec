@@ -4,6 +4,7 @@
 # By default this builds a one-folder app at dist/lumen/.
 # Set LUMEN_ONEFILE=1 in the environment to produce a single binary at dist/lumen.
 import os
+import sys
 from pathlib import Path
 
 # When PyInstaller loads a spec it doesn't define __file__. Use the cwd, which
@@ -13,6 +14,20 @@ ROOT = Path(SPECPATH).resolve()
 
 ONEFILE = os.environ.get("LUMEN_ONEFILE") == "1"
 DEBUG = os.environ.get("LUMEN_DEBUG") == "1"
+
+# Pick a platform-appropriate icon. PyInstaller refuses an SVG on Windows
+# (needs .ico) and macOS (needs .icns), so resolve to the right asset and
+# fall back to None when the expected file is missing — the build still
+# succeeds, just without a custom icon.
+if sys.platform == "win32":
+    _ico = ROOT / "lumen.ico"
+    ICON_PATH = str(_ico) if _ico.is_file() else None
+elif sys.platform == "darwin":
+    _icns = ROOT / "lumen.icns"
+    ICON_PATH = str(_icns) if _icns.is_file() else None
+else:
+    _svg = ROOT / "assets" / "lumen.svg"
+    ICON_PATH = str(_svg) if _svg.is_file() else None
 
 block_cipher = None
 
@@ -113,7 +128,7 @@ if ONEFILE:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
-        icon=str(ROOT / "assets" / "lumen.svg"),
+        icon=ICON_PATH,
     )
 else:
     exe = EXE(
@@ -131,7 +146,7 @@ else:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
-        icon=str(ROOT / "assets" / "lumen.svg"),
+        icon=ICON_PATH,
     )
     coll = COLLECT(
         exe,
