@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -53,6 +54,7 @@ from .pycharm import (
     RecentEntry,
     RecentFilesPopup,
     RunPanel,
+    missing_interpreter_for,
     runner_for,
 )
 from .search import SearchPanel
@@ -170,6 +172,10 @@ class MainWindow(QMainWindow):
         if self.tabs.count() == 0:
             self.center_stack.setCurrentWidget(self.welcome)
 
+        # Initialise the right-side Run pill once the rest of the UI
+        # is up. It listens to tab + process signals to stay in sync.
+        self._refresh_run_pill()
+
     # ================ UI ================
 
     def _build_ui(self) -> None:
@@ -261,6 +267,10 @@ class MainWindow(QMainWindow):
         self.bottom_dock.addTab(self.terminal, icon("terminal"), "Terminal")
         self.bottom_dock.addTab(self.run_panel, icon("file"), "Run")
         self.bottom_dock.hide()
+        # Keep the toolbar Run pill in sync with whatever's running.
+        self.run_panel.finished.connect(lambda _code: self._refresh_run_pill())
+        self.terminal.process_finished.connect(self._refresh_run_pill)
+        self.terminal.process_started.connect(self._refresh_run_pill)
         self.v_splitter = QSplitter(Qt.Orientation.Vertical)
         self.v_splitter.setChildrenCollapsible(False)
         self.v_splitter.setHandleWidth(1)
@@ -637,17 +647,108 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_find)
         tb.addAction(self.act_search_in_folder)
         tb.addAction(self.act_palette)
-        tb.addSeparator()
-        tb.addAction(self.act_run_in_terminal)
-        tb.addAction(self.act_run_file)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
+
+        # ---- PyCharm-style Run pill (right side) ----
+        # Shows what will run + a prominent green play + a red stop
+        # that only appears while a process is alive.
+        self._run_pill = self._build_run_pill()
+        tb.addWidget(self._run_pill)
+        tb.addSeparator()
+
         tb.addAction(self.act_show_ai)
         tb.addAction(self.act_toggle_terminal)
         tb.addAction(self.act_toggle_theme)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
         self._toolbar = tb
+
+    def _build_run_pill(self) -> QFrame:
+        """PyCharm-style run target chip + play/stop buttons.
+
+        Layout: ``[ filename ▷ ]`` where ``▷`` is the soft-green play
+        button. The stop button is only visible while a process is
+        running (in the terminal or the run console).
+        """
+        pill = QFrame()
+        pill.setObjectName("RunPill")
+        row = QHBoxLayout(pill)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(2)
+
+        self._run_pill_label = QLabel("(no file)")
+        self._run_pill_label.setObjectName("RunPillLabel")
+        self._run_pill_label.setProperty("role", "empty")
+        self._run_pill_label.setToolTip(
+            "The file that will run when you click ▶ (or press F5).\n"
+            "Switch tabs to change targets."
+        )
+        row.addWidget(self._run_pill_label)
+
+        self._run_pill_play = QToolButton()
+        self._run_pill_play.setObjectName("RunPillPlay")
+        self._run_pill_play.setDefaultAction(self.act_run_in_terminal)
+        self._run_pill_play.setIcon(icon("play"))
+        self._run_pill_play.setIconSize(QSize(16, 16))
+        self._run_pill_play.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self._run_pill_play.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._run_pill_play)
+
+        self._run_pill_stop = QToolButton()
+        self._run_pill_stop.setObjectName("RunPillStop")
+        self._run_pill_stop.setIcon(icon("stop"))
+        self._run_pill_stop.setIconSize(QSize(16, 16))
+        self._run_pill_stop.setToolTip("Stop the running process (Ctrl+F2)")
+        self._run_pill_stop.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._run_pill_stop.clicked.connect(self._stop_all_runs)
+        self._run_pill_stop.setVisible(False)
+        row.addWidget(self._run_pill_stop)
+
+        return pill
+
+    def _stop_all_runs(self) -> None:
+        """Kill whichever runner is currently active (terminal or panel)."""
+        if self.run_panel.is_running():
+            self.run_panel.stop()
+        if self.terminal._proc is not None:
+            self.terminal.kill_process()
+        self._refresh_run_pill()
+
+    def _refresh_run_pill(self) -> None:
+        """Update the Run pill label + stop-button visibility.
+
+        Called whenever the active tab changes, a file is saved (path
+        may change with Save As), or a runner starts/finishes.
+        """
+        tab = self._current_tab()
+        if tab and tab.state.path:
+            base = os.path.basename(tab.state.path)
+            self._run_pill_label.setText(base)
+            self._run_pill_label.setToolTip(tab.state.path)
+            self._run_pill_label.setProperty("role", "")
+            self._run_pill_play.setEnabled(True)
+        elif tab:
+            self._run_pill_label.setText(tab.display_name() or "(unsaved)")
+            self._run_pill_label.setToolTip("Unsaved buffer — Save first to run.")
+            self._run_pill_label.setProperty("role", "empty")
+            self._run_pill_play.setEnabled(True)
+        else:
+            self._run_pill_label.setText("(no file)")
+            self._run_pill_label.setToolTip(
+                "Open a file to enable the Run button."
+            )
+            self._run_pill_label.setProperty("role", "empty")
+            self._run_pill_play.setEnabled(False)
+        # Force the QSS engine to re-evaluate the [role="empty"] selector.
+        self._run_pill_label.style().unpolish(self._run_pill_label)
+        self._run_pill_label.style().polish(self._run_pill_label)
+
+        running = self.run_panel.is_running() or (
+            self.terminal._proc is not None
+            and self.terminal._proc.state() != self.terminal._proc.ProcessState.NotRunning
+        )
+        self._run_pill_stop.setVisible(running)
 
     def _build_statusbar(self) -> None:
         sb = QStatusBar()
@@ -796,6 +897,8 @@ class MainWindow(QMainWindow):
         if tab is self._current_tab():
             self._update_window_title()
             self.status_path.setText(tab.state.path or "Untitled")
+            if hasattr(self, "_run_pill"):
+                self._refresh_run_pill()
 
     def _update_window_title(self) -> None:
         tab = self._current_tab()
@@ -840,6 +943,10 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, _idx: int) -> None:
         tab = self._current_tab()
+        # The Run pill reflects whatever is in the foreground; refresh it
+        # even when the tab is None (e.g. after the last tab is closed).
+        if hasattr(self, "_run_pill"):
+            self._refresh_run_pill()
         if tab is None:
             return
         self._update_window_title()
@@ -1283,14 +1390,28 @@ class MainWindow(QMainWindow):
                 return None
         if tab.is_modified() and tab.state.path:
             tab.save()
-        if runner_for(tab.state.path or "") is None:
-            QMessageBox.information(
-                self, "Run",
-                f"No runner is configured for "
-                f"{os.path.basename(tab.state.path or '')}.",
-            )
+        path = tab.state.path or ""
+        if runner_for(path) is None:
+            # Differentiate "we don't know this extension" from "we know
+            # it but the required interpreter isn't installed".
+            missing = missing_interpreter_for(path)
+            if missing:
+                QMessageBox.warning(
+                    self, "Run",
+                    f"Couldn't find a {missing} interpreter on your system.\n\n"
+                    f"Install {missing} (e.g. `sudo apt install python3` on "
+                    f"Ubuntu/Debian) or set the LUMEN_PYTHON environment "
+                    f"variable to point at the interpreter you want Lumen "
+                    f"to use, then try again."
+                )
+            else:
+                QMessageBox.information(
+                    self, "Run",
+                    f"No runner is configured for "
+                    f"{os.path.basename(path)}.",
+                )
             return None
-        return tab.state.path
+        return path
 
     def _goto_line_in_current(self, line: int) -> None:
         ed = self._current_editor()

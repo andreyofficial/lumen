@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Callable, Iterable, Union
 
 from PyQt6.QtCore import (
     QFileSystemWatcher,
@@ -373,10 +374,116 @@ class OutlinePanel(QFrame):
 #  Run console panel
 # --------------------------------------------------------------------------
 
-# Filenames → run command. The first match wins; ``None`` means "no
-# automatic runner; ask the user".
-_RUNNERS = [
-    (re.compile(r"\.py$"),     [sys.executable, "-u"]),
+# ---- Python interpreter resolution ---------------------------------------
+#
+# Inside a PyInstaller bundle ``sys.executable`` is the Lumen binary
+# itself — running ``sys.executable file.py`` just re-launches Lumen and
+# discards the args. So when we're frozen we have to dig up a real
+# Python interpreter on the user's machine. The result is cached so
+# we don't shell out every time the user presses F5.
+
+_PYTHON_CACHE: str | None = None
+
+
+def _is_frozen() -> bool:
+    """True iff we're running inside a PyInstaller bundle."""
+    return getattr(sys, "frozen", False) is True
+
+
+def _looks_like_lumen_bundle(path: str) -> bool:
+    """Heuristic: is *path* the Lumen executable itself?"""
+    if not path:
+        return False
+    base = os.path.basename(path).lower()
+    return base in ("lumen", "lumen.exe")
+
+
+def _verify_python(path: str) -> bool:
+    """Check that *path* really is a runnable Python interpreter.
+
+    Calls ``<path> -c 'import sys'`` with a short timeout. Anything
+    that prints to stdout / exits 0 / doesn't time out is accepted.
+    """
+    if not path or not os.path.exists(path):
+        return False
+    if _looks_like_lumen_bundle(path):
+        return False
+    try:
+        out = subprocess.run(
+            [path, "-c", "import sys; print(sys.version_info[0])"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and out.stdout.strip().isdigit()
+
+
+def resolve_python(*, force: bool = False) -> str | None:
+    """Return the path to a real Python interpreter, or ``None``.
+
+    Discovery order:
+      1. ``$LUMEN_PYTHON`` env override (if it verifies).
+      2. ``sys.executable`` — but only when we're NOT running frozen and
+         the path doesn't look like the Lumen binary.
+      3. ``shutil.which`` for ``python3``, then ``python``, then
+         ``python3.13``..``python3.8``.
+      4. A handful of common absolute paths (``/usr/bin/python3``,
+         ``/usr/local/bin/python3``, ``/opt/homebrew/bin/python3``).
+
+    Caches the result so subsequent calls are free.
+    """
+    global _PYTHON_CACHE
+    if _PYTHON_CACHE and not force and _verify_python(_PYTHON_CACHE):
+        return _PYTHON_CACHE
+
+    override = os.environ.get("LUMEN_PYTHON", "").strip()
+    if override and _verify_python(override):
+        _PYTHON_CACHE = override
+        return override
+
+    if not _is_frozen():
+        exe = sys.executable or ""
+        if exe and not _looks_like_lumen_bundle(exe) and _verify_python(exe):
+            _PYTHON_CACHE = exe
+            return exe
+
+    candidates: list[str] = []
+    for name in ("python3", "python", "python3.13", "python3.12",
+                 "python3.11", "python3.10", "python3.9", "python3.8"):
+        path = shutil.which(name)
+        if path:
+            candidates.append(path)
+    candidates.extend([
+        "/usr/bin/python3",
+        "/usr/local/bin/python3",
+        "/opt/homebrew/bin/python3",
+        "/usr/bin/python",
+    ])
+
+    seen: set[str] = set()
+    for cand in candidates:
+        if cand in seen:
+            continue
+        seen.add(cand)
+        if _verify_python(cand):
+            _PYTHON_CACHE = cand
+            return cand
+
+    return None
+
+
+# Filenames → either a fixed command list, a zero-arg callable that
+# returns one at runtime, or ``None`` (= "no automatic runner").
+# Using a callable for Python lets us resolve a real interpreter at
+# F5-time rather than at module-import time (when sys.executable is
+# still pointing at the Lumen binary).
+_RunnerSpec = Union[list[str], None, Callable[[], "list[str] | None"]]
+_RUNNERS: list[tuple[re.Pattern[str], _RunnerSpec]] = [
+    (re.compile(r"\.py$"),     lambda: ([resolve_python(), "-u"]
+                                        if resolve_python() else None)),
     (re.compile(r"\.js$"),     ["node"]),
     (re.compile(r"\.ts$"),     ["node", "--loader", "ts-node/esm"]),
     (re.compile(r"\.sh$"),     ["bash"]),
@@ -388,10 +495,34 @@ _RUNNERS = [
 
 
 def runner_for(path: str) -> list[str] | None:
+    """Resolve the run command for *path*, or ``None`` if not runnable.
+
+    Returning ``None`` covers both "we don't know how to run this
+    extension" and "we know how but the required interpreter is
+    missing on this machine". Callers should distinguish these with
+    :func:`missing_interpreter_for`.
+    """
     base = os.path.basename(path)
     for pat, cmd in _RUNNERS:
-        if pat.search(base):
-            return list(cmd) if cmd else None
+        if not pat.search(base):
+            continue
+        if callable(cmd):
+            resolved = cmd()
+            return list(resolved) if resolved else None
+        return list(cmd) if cmd else None
+    return None
+
+
+def missing_interpreter_for(path: str) -> str | None:
+    """Return a human-readable interpreter name iff we know how to run
+    *path* but the interpreter isn't installed.
+
+    Used by callers to differentiate "no runner configured for .xyz
+    files" from "we know .py needs Python but couldn't find one".
+    """
+    base = os.path.basename(path)
+    if re.search(r"\.py$", base) and resolve_python() is None:
+        return "python3"
     return None
 
 
@@ -504,6 +635,8 @@ __all__ = [
     "OutlineNode",
     "OutlinePanel",
     "RunPanel",
+    "missing_interpreter_for",
     "parse_outline",
+    "resolve_python",
     "runner_for",
 ]

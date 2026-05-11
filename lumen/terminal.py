@@ -47,6 +47,11 @@ def _strip_ansi(s: str) -> str:
 
 class TerminalPanel(QFrame):
     visibility_changed = pyqtSignal(bool)
+    # Fires whenever a backgrounded shell process ends (normally or
+    # killed). Carries the exit code (-1 for kill / error).
+    process_finished = pyqtSignal(int)
+    # Fires whenever a process is freshly started in the terminal.
+    process_started = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -325,6 +330,7 @@ class TerminalPanel(QFrame):
         proc.setProcessEnvironment(env)
         self._proc = proc
         proc.start("/bin/sh", ["-c", cmd])
+        self.process_started.emit()
 
     def _on_stdout(self) -> None:
         if not self._proc:
@@ -338,7 +344,14 @@ class TerminalPanel(QFrame):
         else:
             self._append(f"\n[exit {exit_code}]\n", color=theme.PALETTE.error)
         self._proc = None
+        self.process_finished.emit(exit_code)
 
     def _on_error(self, _err) -> None:
-        if self._proc:
-            self._append(f"\n[error: {self._proc.errorString()}]\n", color=theme.PALETTE.error)
+        # Both errorOccurred and finished can fire for a single command
+        # (e.g. Crashed). Make sure process_finished is only emitted
+        # once — first signal in wins.
+        if self._proc is None:
+            return
+        self._append(f"\n[error: {self._proc.errorString()}]\n", color=theme.PALETTE.error)
+        self._proc = None
+        self.process_finished.emit(-1)

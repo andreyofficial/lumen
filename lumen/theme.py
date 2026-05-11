@@ -64,6 +64,11 @@ class Palette:
     success: str
     warning: str
     error: str
+    # PyCharm-style Run accent — a single small allowance for green
+    # so the play button stays recognisable on a monochrome toolbar.
+    run_action: str
+    run_action_hover: str
+    run_action_pressed: str
 
     # Editor specifics
     line_number_bg: str
@@ -145,6 +150,11 @@ DARK = Palette(
     success="#cfcfd6",
     warning="#bcbcc4",
     error="#d9685c",
+    # PyCharm-style soft sage green for the Run pill — same family as
+    # the string-literal syntax colour so it doesn't fight the palette.
+    run_action="#7eb56c",
+    run_action_hover="#94c280",
+    run_action_pressed="#629158",
 
     line_number_bg="#1a1a1d",
     line_number_fg="#4a4a52",
@@ -220,6 +230,11 @@ LIGHT = Palette(
     success="#3a3a42",
     warning="#5c5c66",
     error="#b85a52",
+    # Forest green — same family as the string-literal colour in the
+    # light theme. Pops on cream without screaming.
+    run_action="#3f7d2a",
+    run_action_hover="#326322",
+    run_action_pressed="#28501b",
 
     line_number_bg="#fbfbf8",
     line_number_fg="#c8c8c0",
@@ -358,6 +373,54 @@ def stylesheet(p: Palette) -> str:
         background: {p.bg_active};
         color: {p.accent};
         border-color: {p.border_strong};
+    }}
+
+    /* ================ PyCharm-style Run pill (right side of toolbar) ================
+       A grouped "Run: <current file> [▶] [■]" widget. The file label
+       sits inside a soft chip; the play button is the one place we
+       allow a green accent so the run target is unmistakable. */
+    QFrame#RunPill {{
+        background: {p.bg_input};
+        border: 1px solid {p.border};
+        border-radius: 10px;
+        padding: 2px 4px 2px 10px;
+    }}
+    QLabel#RunPillLabel {{
+        color: {p.text_muted};
+        background: transparent;
+        font-weight: 600;
+        font-size: 12px;
+        padding: 0 6px;
+    }}
+    QLabel#RunPillLabel[role="empty"] {{
+        color: {p.text_dim};
+        font-style: italic;
+        font-weight: 400;
+    }}
+    QToolButton#RunPillPlay {{
+        background: transparent;
+        color: {p.run_action};
+        border: none;
+        padding: 4px 6px;
+        border-radius: 8px;
+    }}
+    QToolButton#RunPillPlay:hover {{
+        background: {p.bg_hover};
+        color: {p.run_action_hover};
+    }}
+    QToolButton#RunPillPlay:pressed {{
+        background: {p.bg_active};
+        color: {p.run_action_pressed};
+    }}
+    QToolButton#RunPillStop {{
+        background: transparent;
+        color: {p.error};
+        border: none;
+        padding: 4px 6px;
+        border-radius: 8px;
+    }}
+    QToolButton#RunPillStop:hover {{
+        background: {p.bg_hover};
     }}
 
     /* ================ Activity bar (left rail) ================ */
