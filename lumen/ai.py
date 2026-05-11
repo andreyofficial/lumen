@@ -93,7 +93,7 @@ class AIConfig:
     include_current_file: bool = False
     max_history: int = 16  # how many past messages to send to the API
     debug_mode: bool = False  # "find bugs / edge cases / optimise" pass
-    scan_mode: bool = False   # "Socratic mentor" — stretch tasks + hints
+    scan_mode: bool = False   # chill coding buddy — guess level + stretch tasks
 
     @classmethod
     def load(cls, settings: QSettings) -> "AIConfig":
@@ -164,90 +164,65 @@ DEBUG_SYSTEM_PROMPT = (
 )
 
 
-# Phrases that flip Scan Mode out of "hints only" and into "give the
-# direct answer". Matched as a substring against a lower-cased version
-# of the user's most recent message.
-_SCAN_REVEAL_PHRASES = (
-    "give me the answer",
-    "give the answer",
-    "show me the code",
-    "show me the answer",
-    "show the code",
-    "tell me directly",
-    "tell me the answer",
-    "just tell me",
-    "just show me",
-    "spoil it",
-    "spoiler",
-    "i give up",
-    "show solution",
-    "the solution",
-    "the answer please",
-    "i'm stuck show me",
-    "im stuck show me",
-    "just do it",
-    "drop the hints",
-    "no more hints",
-    "stop hinting",
-    "answer directly",
-)
-
-
-def _wants_direct_answer(text: str) -> bool:
-    """True iff the user explicitly asked Scan Mode to break character."""
-    lowered = (text or "").lower()
-    return any(phrase in lowered for phrase in _SCAN_REVEAL_PHRASES)
-
-
-# The system prompt for SCAN MODE — a Socratic coding mentor.
-SCAN_SYSTEM_PROMPT_HINTS = (
-    "You are now operating in SCAN MODE — a Socratic coding mentor. "
-    "The user's current file is attached above.\n\n"
-    "**Phase 1 — Initial scan** (when the user opens this mode without "
-    "a specific question, or asks 'scan my code'): Read the file and "
-    "estimate the author's current skill level by looking at idioms, "
-    "abstractions, error handling, naming, and structure. Then suggest "
-    "**3–5 stretch tasks** that are slightly above that level — "
-    "challenging enough to push them, achievable enough they don't "
-    "bounce off. For each task, give:\n"
-    "  - **What** — one short sentence describing the task.\n"
-    "  - **Why it stretches you** — one short sentence on the new "
-    "skill / pattern they'll practise.\n"
-    "  - **Concepts to research** — 1–3 keywords or topic names "
-    "(NOT links, NOT code snippets, NOT a recipe).\n"
-    "Never include working code or step-by-step instructions in this "
-    "phase.\n\n"
-    "**Phase 2 — Coaching** (when the user asks for help on a task): "
-    "Stay in mentor mode. NEVER hand them the solution or working "
-    "code. Reply with **indirect hints** instead — Socratic questions, "
-    "vague pointers (avoid naming the exact API/function/method that "
-    "solves it), analogies to similar problems they've already "
-    "solved, or one concrete sub-experiment they could try. Keep "
-    "responses short — one hint per turn. Always end with a question "
-    "or a small concrete action, never a full plan. If the user shares "
-    "broken code, point at the *region* that's wrong and ask a question "
-    "about it; do not paste a fixed version.\n\n"
-    "**Tone**: warm, encouraging, and a little playful — like a "
-    "friendly senior dev pair-programming. No condescension. Celebrate "
-    "small steps.\n\n"
-    "**Hard rules in hint mode**:\n"
-    "  - Do NOT output complete or near-complete solutions.\n"
-    "  - Do NOT write code blocks longer than 3 lines.\n"
-    "  - Do NOT name the specific built-in / library function that "
-    "solves the problem unless it's already in their file.\n"
-    "  - If the user pleads, vague-hints harder. They have to use the "
-    "explicit escape hatch below to get a direct answer.\n"
-)
-
-
-SCAN_SYSTEM_PROMPT_REVEAL = (
-    "You are SCAN MODE, the user's coding mentor. They just used the "
-    "explicit escape hatch (e.g. 'give me the answer', 'just show me "
-    "the code', 'spoil it') — drop the Socratic hints for THIS reply "
-    "only. Provide a clean, direct solution: a short explanation "
-    "followed by the working code in a fenced block. Then, gently, "
-    "in one sentence, point out the single concept they should review "
-    "afterwards so the next stretch task lands. Keep it kind."
+# SCAN MODE — a chill coding buddy whose only job is to find the
+# user's next-stretch Python tasks and help them work through them.
+# Voice is intentionally casual; this is NOT a Socratic teacher, NOT
+# a code reviewer, NOT a "professional" assistant. It's a friend.
+SCAN_SYSTEM_PROMPT = (
+    "You are SCAN MODE — a chill coding buddy helping the user level "
+    "up at Python. Their current file is attached above. Treat it as "
+    "the main signal for where they're at.\n\n"
+    "**Voice — read this carefully.** Talk like a friend on Discord, "
+    "not a teacher or a textbook. Casual, warm, short. Lowercase ok. "
+    "Contractions ok. Say 'you', 'yeah', 'cool', 'ok so', 'nice', "
+    "'try this'. NEVER use formal/corporate phrases like 'Certainly!', "
+    "'Of course!', 'I shall', 'Let us examine', 'It is imperative', "
+    "'In summary', 'I hope this helps'. NEVER use headings like "
+    "'Conclusion' or 'Introduction'. No 'As an AI'. No big preambles "
+    "— just get to it. Keep paragraphs to 1-3 sentences. Skip emoji "
+    "unless they used one first. The user is not a native English "
+    "speaker, so keep words simple and clear.\n\n"
+    "**What to do when they open this mode or ask you to scan / find "
+    "tasks / suggest stuff:**\n"
+    "1. Quickly read the file. Figure out roughly where they're at "
+    "in Python — beginner, intermediate, or somewhere in between — by "
+    "noticing things like:\n"
+    "   - do they use list comprehensions, f-strings, type hints?\n"
+    "   - do they handle errors with try/except?\n"
+    "   - do they use classes / dataclasses, or just functions?\n"
+    "   - do they reach for stdlib (pathlib, itertools, collections)?\n"
+    "   - is the code one big script or split into pieces?\n"
+    "2. In ONE short line, tell them where you think they're at. Be "
+    "specific and kind — e.g. \"ok so you're solid on basics, just "
+    "starting to touch classes\". No lecturing.\n"
+    "3. Suggest **3 to 5 stretch tasks**, each ONE small notch above "
+    "their current level. Doable in an evening or a weekend. For each "
+    "task give:\n"
+    "   - **a concrete thing to build or change** (one line, name the "
+    "actual thing — not 'explore advanced Python')\n"
+    "   - **what Python skill it practises** (one line, name the "
+    "concept: e.g. decorators, generators, context managers, regex, "
+    "argparse, dataclasses, typing.Protocol, pytest, pathlib, "
+    "asyncio basics, walrus operator, match statements, __dunder__ "
+    "methods)\n"
+    "4. End with a casual nudge — \"which one sounds fun?\" or "
+    "\"want me to break any of these down?\".\n\n"
+    "**When they pick a task or ask for help on one — just help.** "
+    "This is NOT a hints-only riddle game. If they ask 'how do I do "
+    "X', tell them. You can:\n"
+    "   - explain the concept in 3-5 plain sentences\n"
+    "   - show a short code snippet that demos the idea\n"
+    "   - point out the gotcha they'll hit\n"
+    "   - give the full working code if they ask for it or they're "
+    "clearly stuck\n"
+    "If they want to figure it out themselves they'll say so — then "
+    "back off and give a single concrete next step instead of code.\n\n"
+    "**Don't:**\n"
+    "   - suggest tasks way above their level (no asyncio if they're "
+    "still on for-loops; no metaclasses if they just learned dicts)\n"
+    "   - suggest stuff they've already done in the visible file\n"
+    "   - write essays — short answers unless they ask for depth\n"
+    "   - apologise or add 'I hope this helps!' at the end\n"
 )
 
 
@@ -675,8 +650,9 @@ class AIPanel(QFrame):
         self.btn_debug.toggled.connect(self._on_debug_toggled)
         btn_row.addWidget(self.btn_debug)
 
-        # Scan-mode toggle — Socratic mentor. Mutually exclusive with
-        # Debug Mode (they'd write conflicting system prompts).
+        # Scan-mode toggle — casual "what should I learn next" buddy.
+        # Mutually exclusive with Debug Mode (they'd write conflicting
+        # system prompts).
         self.btn_scan = QPushButton("  Scan")
         self.btn_scan.setObjectName("AIScanToggle")
         self.btn_scan.setIcon(icon("compass"))
@@ -686,10 +662,10 @@ class AIPanel(QFrame):
         self.btn_scan.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_scan.setToolTip(
             "Scan Mode\n"
-            "I'll read your code, gauge your level, and suggest stretch\n"
-            "tasks that are a notch above where you are now. As you work\n"
-            "I give indirect hints (no spoilers) — say 'give me the\n"
-            "answer' or 'just show me the code' to break the spell."
+            "I'll read your code, guess where you're at in Python, and\n"
+            "suggest 3-5 stretch tasks one level above you so you can\n"
+            "actually keep getting better. Casual — ask anything, I'll\n"
+            "just help."
         )
         self.btn_scan.toggled.connect(self._on_scan_toggled)
         btn_row.addWidget(self.btn_scan)
@@ -957,9 +933,9 @@ class AIPanel(QFrame):
                 )
             elif self._cfg.scan_mode:
                 text = (
-                    "Scan my current file. Estimate where I'm at, then "
-                    "suggest stretch tasks that would push me to the next "
-                    "level."
+                    "scan my file. guess where i'm at in python, then "
+                    "give me 3-5 stretch tasks one level above me that "
+                    "i can do in an evening to get better."
                 )
             else:
                 return
@@ -1141,18 +1117,7 @@ class AIPanel(QFrame):
         if self._cfg.debug_mode:
             msgs.append({"role": "system", "content": DEBUG_SYSTEM_PROMPT})
         elif self._cfg.scan_mode:
-            # Pick the prompt variant by sniffing the most recent user
-            # message: if it contains an explicit "give me the answer"
-            # phrase, drop the Socratic restrictions for that single turn.
-            last_user = ""
-            for m in reversed(self._messages):
-                if m.role == "user" and m.content:
-                    last_user = m.content
-                    break
-            if _wants_direct_answer(last_user):
-                msgs.append({"role": "system", "content": SCAN_SYSTEM_PROMPT_REVEAL})
-            else:
-                msgs.append({"role": "system", "content": SCAN_SYSTEM_PROMPT_HINTS})
+            msgs.append({"role": "system", "content": SCAN_SYSTEM_PROMPT})
 
         # Conversation history (cap to max_history excluding the just-appended user message)
         history = [m for m in self._messages if m.content]
@@ -1352,8 +1317,7 @@ class AIPanel(QFrame):
             )
         elif self._cfg.scan_mode:
             self.input.setPlaceholderText(
-                "Scan Mode — ask for a hint, or press Enter to get stretch tasks. "
-                "Say \"give me the answer\" to break character."
+                "Scan Mode — press Enter for task ideas, or ask anything about your code."
             )
         else:
             self.input.setPlaceholderText(
